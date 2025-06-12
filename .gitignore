@@ -1,0 +1,88 @@
+# Prerequisites
+*.d
+*.bak
+*.log
+
+# Compiled Object files
+*.slo
+*.lo
+*.o
+*.obj
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Compiled Dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Fortran module files
+*.mod
+*.smod
+
+# Compiled Static libraries
+*.lai
+*.la
+*.a
+*.lib
+
+# Executables
+*.exe
+*.out
+*.app
+
+# vi swap file
+*.swp
+
+# Inventor Archive
+CAD/OldVersions/
+CAD/*/OldVersions/
+CAD/*/*/OldVersions/
+CAD/*/*/*/OldVersions/
+CAD/*/*/*/*/OldVersions/
+CAD2/*
+
+# examples from the net
+inspiration/
+
+# Eagle archive and project files
+hardware/*/*.b#*
+hardware/*/*.s#*
+hardware/libs/*.l#*
+hardware/*/*.pro*
+
+*.bak
+*.swp
+~$*.*
+
+# compiled folders
+code/controller/build/
+code/controller/install/
+code/controller/src/CMakeFiles/
+code/controller/src/Makefile
+code/controller/src/*.cmake
+code/controller/src/CMakeCache.txt
+
+code/mainboard/build/
+code/mainboard/install/
+code/mainboard/controller/CMakeFiles/
+code/mainboard/controller/Makefile
+code/mainboard/controller/*.cmake
+code/mainboard/controller/CMakeCache.txt
+code/mainboard/.settings/
+
+code/*/*/__pycache__/
+code/*/*/s/__pycache__/
+CAD/*/*/*.zcode
+CAD/*/*.zcode
+
+# ODrive
+code/odrive/ODrive-Firmware-0.54-src
+code/odrive/ODrive-Firmware-1.54-src
+code/odrive/ODrive-Firmware-1.55-src
+code/odrive/ODrive-Firmware-0.55-src
+
+#osqp
+code/osqp/build/

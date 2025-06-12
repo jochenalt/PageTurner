@@ -1,0 +1,5 @@
+MAGIC	2 bytes	Fixed: 0xABCD
+CMD	1 byte	Command type
+LEN	2 bytes	Payload length
+PAYLOAD	N bytes	Optional data
+CRC	1 byte	CRC-8 over [CMD][LEN][PAYLOAD]
