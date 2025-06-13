@@ -11,5 +11,5 @@ struct ModelConfigDataType {
 
   bool modelIsPresent;
   int modelVersion;
-  uint8_t model[100000]; // 100k should be sufficient for a tensorflow Lite model
+  int gainLevel;
 }; 

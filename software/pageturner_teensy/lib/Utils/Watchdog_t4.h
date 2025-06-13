@@ -62,5 +62,5 @@ WDT_CLASS class WDT_T4 : public WDT_T4_Base {
     void ewatchdog_isr();
 };
 
-#include "Watchdog.tpp"
+#include "Watchdog_t4.tpp"
 #endif

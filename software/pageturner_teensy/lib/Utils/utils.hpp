@@ -1,38 +1,16 @@
 #pragma once
 
 #include <Arduino.h>
-#include <Watchdog.h>
+
 
 // like sprintf but with a String as output
 String strPrintf (const char* format, ...);
 
 enum LogLevel 		 { INFO=0, WARN=1, ERROR=2, FATAL=3, DEBUG=4 };
 void printLogHeader(const char* name);
-void printLogHeader(LogLevel lvl,const char* name);
+void printLogHeader(const char* name);
 
 void printlnBase(const char* format, ...);
-
-// Watchdog (AVR watchdog does not work on Teensy)
-extern WDT_T4<WDT1> wdt;
-
-void watchdogWarning();
-// set the watchdog timer to 100ms
-void fastWatchdog();
-void slowWatchdog();
-void setupWatchdog();
-
-// returns the difference of an angle going from b to a 
-// while assuming that both angles can only go from -PI to +PI
-float angleDifference(float a, float b);
-
-// geometric calculations
-void quaternion2RPY(double x, double y, double z, double w , double rpy[]);
-void RPY2Quaternion(double RPY[], double &x, double &y, double &z, double &w);
-void rotate_by_quat(double value[3], double rotation[4], double result[3]);
-
-float roundTo(float x, int digits);
-#define DEG2RAD(x) ((x)*TWO_PI/360.)
-#define RAD2DEG(x) ((x)*360./TWO_PI)
 
 float sgn(float a);
 

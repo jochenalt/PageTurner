@@ -1,5 +1,6 @@
 
 #include <model.hpp>
+#include <constants.hpp>
 
 void ModelConfigDataType::println(const char* format, ...) {
     char s[256];
@@ -18,9 +19,11 @@ void ModelConfigDataType::print() {
     else {
         println("no model present");
     }        
+    println("gain level %i", gainLevel);
 }
 
 void ModelConfigDataType::setup() {
 	modelIsPresent = false;
   	modelVersion = 0;
+    gainLevel = 5;
 }
