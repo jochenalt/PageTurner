@@ -203,6 +203,7 @@ void executeManualCommand() {
 		} // if (Serial.available())
 }
 
+extern void setAudioSampleRate(unsigned int);
 void setup() {
   pinMode(LED_LISTENING_PIN, OUTPUT);  
   pinMode(LED_RECORDING_PIN, OUTPUT);
@@ -236,8 +237,9 @@ void setup() {
   persConfig.setup(); 
 
   LOGSerial.begin(115200);
+  Serial.begin(115200);
 
-  // Enable the audio shield
+  // Enable the audio shield+
   AudioMemory(60);                                      // Allocate audio processing memory
   audioShield.enable();
   audioShield.adcHighPassFilterDisable();
