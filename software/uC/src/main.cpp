@@ -46,7 +46,7 @@ bool   recording = false;                  // true, if recording is happening
 // State‐Variablen für den Eval Mode
 static bool evalMode = false;
 static bool  evalModeStartWaiting = 0;
-
+static bool evalModeEndWaiting = false;
 // counters
 size_t outCount = 0;
 static size_t  rawPosition = 0;           // total raw samples consumed so far
@@ -303,6 +303,10 @@ void loop() {
   if (evalMode && buttonChange && buttonState) {
     evalMode = false;
     evalModeStartWaiting = false;
+  
+    // if we are in the middle of a recording block, end this with the eval command
+    if (recording)
+      evalModeEndWaiting = true;
   }
 
   // if we are in recording and release the button in time, we do not wait for an evaluation mode anymore
@@ -315,6 +319,7 @@ void loop() {
       // <1s: normaler 1s-Schnipsel-Aufnahme-Modus
       digitalWrite(LED_RECORDING_PIN, HIGH);
       recording = true;
+      evalModeEndWaiting = false;
       outCount   = 0;
       rawPosition = 0;
       dsPosition = 0.0;
@@ -343,20 +348,28 @@ if (recording && recorder.available()) {
       // send outCount samples at 16 kHz:
       digitalWrite(LED_COMMS_PIN, HIGH);
       size_t totalBytes = outCount * BYTES_PER_SAMPLE;
-      send_packet(Serial, CMD_AUDIO_SNIPPET, (uint8_t*)audioBuffer, totalBytes);
+      int cmd = CMD_AUDIO_SNIPPET;
+      if (evalModeStartWaiting || (evalMode || evalModeEndWaiting)) {
+         cmd = CMD_AUDIO_STREAM;
+         println("evaluation audio of %i 16kHz samples %u bytes sent", outCount, totalBytes);
+         
+         if (evalModeEndWaiting)
+           LOGSerial.println("end evaluation stream");
+         evalModeEndWaiting = false;
+      }
+      else
+        println("recording of %i 16kHz samples %u bytes sent", outCount, totalBytes);
+
+      send_packet(Serial, cmd, (uint8_t*)audioBuffer, totalBytes);
       send_packet(Serial, CMD_SAMPLE_COUNT, (uint8_t*)&outCount, sizeof(outCount));
       Serial.flush();
       digitalWrite(LED_COMMS_PIN, LOW);
 
-      if (evalMode)
-        println("evaluation audio of %i 16kHz samples %u bytes sent", outCount, totalBytes);
-      else
-        println("recording of %i 16kHz samples %u bytes sent", outCount, totalBytes);
-
       // if button is still pushed, turn on evaluation mode
-      if (evalModeStartWaiting != 0) {
+      if (evalModeStartWaiting) {
         evalMode = true;
-        evalModeStartWaiting = 0;
+        evalModeStartWaiting = false;
+        evalModeEndWaiting = false;
       }
     }
 }

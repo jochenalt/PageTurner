@@ -16,26 +16,31 @@ from tflite_model_maker.config import ExportFormat
 import tensorflow as tf
 from pydub import AudioSegment
 from tflite_model_maker import model_spec
-import pprint
 from tflite_model_maker import audio_classifier as ac
+import glob
+import librosa
+import pprint
 
 # === Constants ===
 PACKET_MAGIC_HI = 0xAB
 PACKET_MAGIC_LO = 0xCD
 PACKET_MAX_PAYLOAD = 512
+
+# === Command IDs from Teensy ===
 CMD_AUDIO_SNIPPET = 0xA1
 CMD_SAMPLE_COUNT = 0xA2
-DATASET_DIR = "dataset"
-AUGMENTED_DIR = "dataset_augmented"
-MODEL_OUTPUT_DIR = "trained_model"
+CMD_AUDIO_STREAM  = 0xA3
 
-RECORD_SECONDS = 1
-SAMPLE_RATE = 16000  # downsampled on teensy from 44.1kHz
-BYTES_PER_SAMPLE = 2
+DATASET_DIR         = "dataset"
+AUGMENTED_DIR       = "dataset_augmented"
+MODEL_OUTPUT_DIR    = "trained_model"
+
+RECORD_SECONDS    = 1
+SAMPLE_RATE       = 16000  # downsampled on teensy from 44.1kHz
+BYTES_PER_SAMPLE  = 2
 TARGET_SAMPLES    = RECORD_SECONDS * SAMPLE_RATE
 TARGET_BYTES      = TARGET_SAMPLES * BYTES_PER_SAMPLE
-DURATION_MS       = RECORD_SECONDS * 1000
-
+DURATION_MS       = RECORD_SECONDS * (RECORD_SECONDS*1000)
 
 
 LABELS = ['weiter', 'next', 'zurueck', 'back', 'silence', 'background']
@@ -294,8 +299,7 @@ from tflite_model_maker.audio_classifier import BrowserFftSpec, DataLoader
 from tflite_model_maker.config import ExportFormat
 
 def train_model():
-    # 1️⃣ Build the default MFCC spec (30 ms window, 10 ms stride, 13 coeffs)
-    spec = BrowserFftSpec()
+    spec = BrowserFftSpec();
 
     # 2️⃣ Load your augmented data and split 80/20
     print("📚 Loading data…")
@@ -333,7 +337,7 @@ def train_model():
     loss, acc = model.evaluate(eval_ds)
     print(f"✅ Accuracy: {acc:.1%}")
 
-    # 6️⃣ Export to versioned folder
+    # 6️⃣ Export to verhhsioned folder
     versioned_dir = get_next_model_version(MODEL_OUTPUT_DIR)
     print(f"💾 Exporting model to {versioned_dir}…")
     model.export(
@@ -345,10 +349,34 @@ def train_model():
 # === Main Program ===
 
 def main():
+    # Eval-Mode State
+    audio_stream_buffer = []                # 1 s Fenster (16 000 Samples)
+    last_inference_time = 0.0
+    inference_stride   = 0.25               # 250 ms
+    interpreter = None
+    input_details = output_details = None
+
     create_dataset_dirs()
     port = find_teensy_port()
     if not port:
         return
+
+    model_dirs = sorted(glob.glob(os.path.join(MODEL_OUTPUT_DIR, 'model_*')))
+    if model_dirs:
+        latest = model_dirs[-1]
+        tflite_path = os.path.join(latest, 'model.tflite')
+        interpreter = tf.lite.Interpreter(model_path=tflite_path)
+        interpreter.allocate_tensors()
+        input_details  = interpreter.get_input_details()
+        output_details = interpreter.get_output_details()
+        print("▶ model input shape:", input_details[0]['shape'])
+        print("  dtype:", input_details[0]['dtype'])
+
+        print(f"✅ Loaded model {latest}")
+    else:
+        interpreter = None
+        input_details = output_details = None
+        print("⚠️ No model found yet — training mit 't' möglich.")
 
     ser = serial.Serial(port, 115200, timeout=1)
     print(f"📡 Listening on {port}...")
@@ -392,6 +420,7 @@ def main():
                 for i, l in enumerate(LABELS):
                     print(f" {i} - record label '{l}'")
                 print(" t - training")
+
                 continue
             elif key in [str(i) for i in range(len(LABELS))]:
                 label = LABELS[int(key)]
@@ -400,23 +429,47 @@ def main():
             else:
                 print("❓ Invalid key.")
 
-        if label is None:
-            continue  # wait for label
-
         # look for packets
         if ser.in_waiting:
             result = read_packet(ser)
             if not result:
                 continue
             cmd, payload = result
+            print(f">> Received packet cmd=0x{cmd:02X} len={len(payload)}")
 
-            if cmd == CMD_AUDIO_SNIPPET:
-                chunk_idx = payload[0]
-                chunk_total = payload[1]
-                audio_data.extend(payload[2:])
-                # print(f"🟡 Chunk {chunk_idx+1}/{chunk_total}")
+            if cmd == CMD_AUDIO_STREAM and interpreter is not None:
+                # rohes PCM16 in numpy-Array
+                chunk = np.frombuffer(payload, dtype=np.int16)
+                audio_stream_buffer.extend(chunk.tolist())
+                # nur letzte 1 s behalten
+                if len(audio_stream_buffer) > TARGET_SAMPLES:
+                    audio_stream_buffer = audio_stream_buffer[-TARGET_SAMPLES:]
 
-            elif cmd == CMD_SAMPLE_COUNT:
+                # Sliding-Window Inferenz alle 250 ms
+                now = time.time()
+                if interpreter is not None and (now - last_inference_time) >= inference_stride \
+                                           and len(audio_stream_buffer) >= TARGET_SAMPLES:
+                    last_inference_time = now
+                    # Normalisiertes Float-Signal
+                    signal = np.array(audio_stream_buffer, dtype=np.float32) / 32768.0
+                    # MFCC-Features (30 ms window, 10 ms stride, 13 coeff)
+                    mfcc = librosa.feature.mfcc(
+                       y=signal,
+                       sr=SAMPLE_RATE,
+                       n_mfcc=13,
+                       n_fft=int(0.03*SAMPLE_RATE),
+                       hop_length=int(0.01*SAMPLE_RATE)
+                    ).T  # shape (time_steps, 13)
+                    # Interpreter füttern (Formate können je nach Spec variieren)
+                    input_tensor = np.expand_dims(mfcc, axis=0).astype(np.float32)
+                    interpreter.set_tensor(input_details[0]['index'], input_tensor)
+                    interpreter.invoke()
+                    output = interpreter.get_tensor(output_details[0]['index'])[0]
+                    idx    = np.argmax(output)
+                    lbl    = LABELS[idx]
+                    print(f"🔍 Inference → {lbl} ({output[idx]:.2f})")
+
+            if cmd == CMD_SAMPLE_COUNT:
                 if len(payload) != 6:
                     print(f"❌ CMD_SAMPLE_COUNT payload length invalid: {len(payload)}")
                     continue
@@ -432,6 +485,15 @@ def main():
                     print(f"❌ Incomplete data: got {len(audio_data)}, expected {expected_bytes}")
                 audio_data.clear()  # prepare for next
 
+            if label is None:
+                continue  # wait for label
+
+            # → regulärer Schnipsel-Modus
+            if cmd == CMD_AUDIO_SNIPPET:
+                chunk_idx = payload[0]
+                chunk_total = payload[1]
+                audio_data.extend(payload[2:])
+                # print(f"🟡 Chunk {chunk_idx+1}/{chunk_total}")
 
 if __name__ == "__main__":
     main()
