@@ -34,14 +34,18 @@ AudioControlSGTL5000 audioShield;
 #define INPUT_RATE        44100
 #define OUTPUT_RATE       16000
 #define BYTES_PER_SAMPLE 2
-#define RAW_SAMPLES      (RECORD_SECONDS * INPUT_RATE)   // 88 200
-#define OUT_SAMPLES      (RECORD_SECONDS * OUTPUT_RATE)  // 32 000
+#define RAW_SAMPLES      (RECORD_SECONDS * INPUT_RATE)   // 44100
+#define OUT_SAMPLES      (RECORD_SECONDS * OUTPUT_RATE)  // 16000
 #define AUDIO_BLOCK_SAMPLES 128
 
 static int16_t audioBuffer[OUT_SAMPLES];  // full 16 kHz output
 static float   dsPosition = 0.0f;         // next raw‐sample read index (in 44.1 kHz space)
 static const float ratio   = INPUT_RATE / (float)OUTPUT_RATE; // ≈2.75625
 bool   recording = false;                  // true, if recording is happening
+
+// State‐Variablen für den Eval Mode
+static bool evalMode = false;
+static bool  evalModeStartWaiting = 0;
 
 // counters
 size_t outCount = 0;
@@ -292,10 +296,23 @@ void loop() {
     */
 
   // check if the recording button has been pushed
-  bool buttonState;                             // state after the action, true = pushed
+  static bool buttonState=false;                             // state after the action, true = pushed
   bool buttonChange = checkButton(buttonState); // true if turned off or turned on
-  if (buttonChange) {
-    if (buttonState) {
+
+  // any push during evaluation mode stops it, but we finish the last snippet
+  if (evalMode && buttonChange && buttonState) {
+    evalMode = false;
+    evalModeStartWaiting = false;
+  }
+
+  // if we are in recording and release the button in time, we do not wait for an evaluation mode anymore
+  if (!evalMode && recording && buttonChange && !buttonState) {
+        evalModeStartWaiting = false;
+  }
+
+  // start audio if evaluation mode is on or we pushed the button
+  if ((evalMode && !recording) || (!recording && buttonChange && buttonState)) { 
+      // <1s: normaler 1s-Schnipsel-Aufnahme-Modus
       digitalWrite(LED_RECORDING_PIN, HIGH);
       recording = true;
       outCount   = 0;
@@ -303,12 +320,13 @@ void loop() {
       dsPosition = 0.0;
       recorder.clear();
       recorder.begin();
-      LOGSerial.println("start recording");
-    };
+      if (!evalMode)
+        LOGSerial.println("start recording");
+      evalModeStartWaiting = millis();
   }
 
     // 2) While recording, fill rawBuffer FULL 88 200 samples:
-  if (recording && recorder.available()) {
+if (recording && recorder.available()) {
     while (recorder.available() && rawPosition < RAW_SAMPLES) {
       int16_t* block = (int16_t*)recorder.readBuffer();
       size_t toCopy = min((size_t)AUDIO_BLOCK_SAMPLES, RAW_SAMPLES - rawPosition);
@@ -330,9 +348,34 @@ void loop() {
       Serial.flush();
       digitalWrite(LED_COMMS_PIN, LOW);
 
-      println("recording of %i 16kHz samples %u bytes sent", outCount, totalBytes);
+      if (evalMode)
+        println("evaluation audio of %i 16kHz samples %u bytes sent", outCount, totalBytes);
+      else
+        println("recording of %i 16kHz samples %u bytes sent", outCount, totalBytes);
+
+      // if button is still pushed, turn on evaluation mode
+      if (evalModeStartWaiting != 0) {
+        evalMode = true;
+        evalModeStartWaiting = 0;
+      }
     }
+}
+
+  // Kontinuierliches Streaming, sobald evalMode aktiv ist
+if (evalMode && recorder.available()) {
+  while (recorder.available()) {
+    int16_t* block = (int16_t*)recorder.readBuffer();
+    // jedes AudioBlock (128 Samples → 256 Bytes) als Packet senden
+    digitalWrite(LED_RECORDING_PIN, LOW);
+    digitalWrite(LED_COMMS_PIN, HIGH);
+    send_packet(Serial, CMD_AUDIO_STREAM,
+                (uint8_t*)block,
+                AUDIO_BLOCK_SAMPLES * sizeof(int16_t));
+    recorder.freeBuffer();
+    digitalWrite(LED_COMMS_PIN, LOW);
+    digitalWrite(LED_RECORDING_PIN, HIGH);
   }
+}
 
   // Check every 100ms
   if (levelMeterOn) {
