@@ -30,12 +30,22 @@ AudioConnection      patchCord4(i2s_input, 0, recorder, 0); // record the left l
 AudioControlSGTL5000 audioShield;
 
 // parameter for recording
-#define RECORD_SECONDS 2
-#define SAMPLE_RATE 16000
+#define RECORD_SECONDS 1
+#define INPUT_RATE        44100
+#define OUTPUT_RATE       16000
 #define BYTES_PER_SAMPLE 2
-#define TOTAL_SAMPLES (RECORD_SECONDS * SAMPLE_RATE)
+#define RAW_SAMPLES      (RECORD_SECONDS * INPUT_RATE)   // 88 200
+#define OUT_SAMPLES      (RECORD_SECONDS * OUTPUT_RATE)  // 32 000
 #define AUDIO_BLOCK_SAMPLES 128
 
+static int16_t audioBuffer[OUT_SAMPLES];  // full 16 kHz output
+static float   dsPosition = 0.0f;         // next raw‐sample read index (in 44.1 kHz space)
+static const float ratio   = INPUT_RATE / (float)OUTPUT_RATE; // ≈2.75625
+bool   recording = false;                  // true, if recording is happening
+
+// counters
+size_t outCount = 0;
+static size_t  rawPosition = 0;           // total raw samples consumed so far
 
 void println(const char* format, ...) {
     char s[256];
@@ -203,23 +213,21 @@ void executeManualCommand() {
 		} // if (Serial.available())
 }
 
-// Downsample from 44.1kHz to  ~16kHz
-void downsampleTo16kHz(const int16_t* input, size_t inputLen, int16_t* output, size_t& outputLen) {
-  outputLen = 0;
-  float ratio = 44100.0f / 16000.0f;  // ≈ 2.75625
-  float index = 0.0f;
+// Call this once per incoming block:
+void processBlock(const int16_t* block, size_t blockLen) {
+  // generate as many 16 kHz samples as fall in this block
+  while (dsPosition < rawPosition + blockLen && outCount < OUT_SAMPLES) {
+    float idxInBlock = dsPosition - rawPosition;
+    int   i = (int)floor(idxInBlock);
+    // 3-tap smoothing
+    int32_t sum = block[i];
+    if (i > 0)                    sum += block[i - 1];
+    if (i + 1 < (int)blockLen)    sum += block[i + 1];
+    audioBuffer[outCount++] = (int16_t)(sum / 3);
 
-  while ((int)(index + 1) < inputLen) {
-    // Einfacher Mittelwert von 3 Samples zur Glättung
-    int i = (int)index;
-    int32_t avg = input[i];
-    if (i + 1 < inputLen) avg += input[i + 1];
-    if (i > 0)         avg += input[i - 1];
-    avg /= 3;
-    output[outputLen++] = (int16_t)avg;
-
-    index += ratio;
+    dsPosition += ratio;
   }
+  rawPosition += blockLen;
 }
 
 void setup() {
@@ -270,13 +278,6 @@ void setup() {
 };
 
 void loop() {
-  static bool recording = false;
-  static int recordingSampleIndex = 0;
-  static int downsampledIndex = 0;
-
-  static int16_t audioBuffer[TOTAL_SAMPLES];
-
-
   // feed the watch dog
 
   // everybody loves a blinking LED
@@ -297,57 +298,39 @@ void loop() {
     if (buttonState) {
       digitalWrite(LED_RECORDING_PIN, HIGH);
       recording = true;
+      outCount   = 0;
+      rawPosition = 0;
+      dsPosition = 0.0;
       recorder.clear();
       recorder.begin();
-      recordingSampleIndex = 0;
-      downsampledIndex = 0;
       LOGSerial.println("start recording");
     };
   }
 
-  // during recording, add everything you got to the audio buffer
+    // 2) While recording, fill rawBuffer FULL 88 200 samples:
   if (recording && recorder.available()) {
-
-    while (recorder.available()) {
-      if (recordingSampleIndex + AUDIO_BLOCK_SAMPLES > TOTAL_SAMPLES) {
-        LOGSerial.println("⚠️ Audio buffer overflow");
-        recorder.freeBuffer();
-        continue;
-      }
-
+    while (recorder.available() && rawPosition < RAW_SAMPLES) {
       int16_t* block = (int16_t*)recorder.readBuffer();
-      size_t toCopy = min((size_t)(TOTAL_SAMPLES - recordingSampleIndex), (size_t)AUDIO_BLOCK_SAMPLES);
-      size_t downLen = 0;
-      downsampleTo16kHz(block, toCopy, audioBuffer + downsampledIndex, downLen);
-      // memcpy(audioBuffer + recordingSampleIndex, block, toCopy * sizeof(int16_t));
-
-      recordingSampleIndex += toCopy;
-      downsampledIndex += downLen;
+      size_t toCopy = min((size_t)AUDIO_BLOCK_SAMPLES, RAW_SAMPLES - rawPosition);
+      processBlock(block, toCopy);
       recorder.freeBuffer();
     }
 
-    if (recordingSampleIndex >= TOTAL_SAMPLES) {
+    // once we’ve seen all RAW_SAMPLES, finish up:
+    if (rawPosition >= RAW_SAMPLES) {
       recording = false;
       recorder.end();
-
-      // turn off LED just in case 
       digitalWrite(LED_RECORDING_PIN, LOW);
 
-      // now send to PC
+      // send outCount samples at 16 kHz:
       digitalWrite(LED_COMMS_PIN, HIGH);
-      
-      // Send audio data to PC
-      size_t totalBytes = downsampledIndex * BYTES_PER_SAMPLE;
+      size_t totalBytes = outCount * BYTES_PER_SAMPLE;
       send_packet(Serial, CMD_AUDIO_SNIPPET, (uint8_t*)audioBuffer, totalBytes);
-
-      // Send sample count
-      uint32_t sampleCount = downsampledIndex;
-      send_packet(Serial, CMD_SAMPLE_COUNT, (uint8_t*)&sampleCount, sizeof(sampleCount));
-
+      send_packet(Serial, CMD_SAMPLE_COUNT, (uint8_t*)&outCount, sizeof(outCount));
       Serial.flush();
-
       digitalWrite(LED_COMMS_PIN, LOW);
-      println("recording of %i samples %u bytes sent", downsampledIndex, totalBytes);
+
+      println("recording of %i 16kHz samples %u bytes sent", outCount, totalBytes);
     }
   }
 

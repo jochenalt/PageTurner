@@ -74,3 +74,4 @@ code/mainboard/controller/CMakeCache.txt
 code/mainboard/.settings/
 software/PC/dataset*/*
 software/PC/tflite-env/
+software/PC/trained_model/
