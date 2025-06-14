@@ -203,7 +203,25 @@ void executeManualCommand() {
 		} // if (Serial.available())
 }
 
-extern void setAudioSampleRate(unsigned int);
+// Downsample from 44.1kHz to  ~16kHz
+void downsampleTo16kHz(const int16_t* input, size_t inputLen, int16_t* output, size_t& outputLen) {
+  outputLen = 0;
+  float ratio = 44100.0f / 16000.0f;  // ≈ 2.75625
+  float index = 0.0f;
+
+  while ((int)(index + 1) < inputLen) {
+    // Einfacher Mittelwert von 3 Samples zur Glättung
+    int i = (int)index;
+    int32_t avg = input[i];
+    if (i + 1 < inputLen) avg += input[i + 1];
+    if (i > 0)         avg += input[i - 1];
+    avg /= 3;
+    output[outputLen++] = (int16_t)avg;
+
+    index += ratio;
+  }
+}
+
 void setup() {
   pinMode(LED_LISTENING_PIN, OUTPUT);  
   pinMode(LED_RECORDING_PIN, OUTPUT);
@@ -240,7 +258,7 @@ void setup() {
   Serial.begin(115200);
 
   // Enable the audio shield+
-  AudioMemory(60);                                      // Allocate audio processing memory
+  AudioMemory(80);                                      // Allocate audio processing memory
   audioShield.enable();
   audioShield.adcHighPassFilterDisable();
   audioShield.inputSelect(AUDIO_INPUT_LINEIN);          // Use line-in (for MAX9814)
@@ -254,6 +272,8 @@ void setup() {
 void loop() {
   static bool recording = false;
   static int recordingSampleIndex = 0;
+  static int downsampledIndex = 0;
+
   static int16_t audioBuffer[TOTAL_SAMPLES];
 
 
@@ -280,6 +300,7 @@ void loop() {
       recorder.clear();
       recorder.begin();
       recordingSampleIndex = 0;
+      downsampledIndex = 0;
       LOGSerial.println("start recording");
     };
   }
@@ -296,8 +317,12 @@ void loop() {
 
       int16_t* block = (int16_t*)recorder.readBuffer();
       size_t toCopy = min((size_t)(TOTAL_SAMPLES - recordingSampleIndex), (size_t)AUDIO_BLOCK_SAMPLES);
-      memcpy(audioBuffer + recordingSampleIndex, block, toCopy * sizeof(int16_t));
+      size_t downLen = 0;
+      downsampleTo16kHz(block, toCopy, audioBuffer + downsampledIndex, downLen);
+      // memcpy(audioBuffer + recordingSampleIndex, block, toCopy * sizeof(int16_t));
+
       recordingSampleIndex += toCopy;
+      downsampledIndex += downLen;
       recorder.freeBuffer();
     }
 
@@ -312,17 +337,17 @@ void loop() {
       digitalWrite(LED_COMMS_PIN, HIGH);
       
       // Send audio data to PC
-      size_t totalBytes = recordingSampleIndex * BYTES_PER_SAMPLE;
+      size_t totalBytes = downsampledIndex * BYTES_PER_SAMPLE;
       send_packet(Serial, CMD_AUDIO_SNIPPET, (uint8_t*)audioBuffer, totalBytes);
 
       // Send sample count
-      uint32_t sampleCount = recordingSampleIndex;
+      uint32_t sampleCount = downsampledIndex;
       send_packet(Serial, CMD_SAMPLE_COUNT, (uint8_t*)&sampleCount, sizeof(sampleCount));
 
       Serial.flush();
 
       digitalWrite(LED_COMMS_PIN, LOW);
-      println("recording of %i samples %u bytes sent", recordingSampleIndex, totalBytes);
+      println("recording of %i samples %u bytes sent", downsampledIndex, totalBytes);
     }
   }
 
