@@ -42,10 +42,7 @@ CAD/*/OldVersions/
 CAD/*/*/OldVersions/
 CAD/*/*/*/OldVersions/
 CAD/*/*/*/*/OldVersions/
-CAD2/*
 
-# examples from the net
-inspiration/
 
 # Eagle archive and project files
 hardware/*/*.b#*
@@ -56,6 +53,9 @@ hardware/*/*.pro*
 *.bak
 *.swp
 ~$*.*
+*.b#
+*.l#
+
 
 # compiled folders
 code/controller/build/
@@ -72,17 +72,5 @@ code/mainboard/controller/Makefile
 code/mainboard/controller/*.cmake
 code/mainboard/controller/CMakeCache.txt
 code/mainboard/.settings/
-
-code/*/*/__pycache__/
-code/*/*/s/__pycache__/
-CAD/*/*/*.zcode
-CAD/*/*.zcode
-
-# ODrive
-code/odrive/ODrive-Firmware-0.54-src
-code/odrive/ODrive-Firmware-1.54-src
-code/odrive/ODrive-Firmware-1.55-src
-code/odrive/ODrive-Firmware-0.55-src
-
-#osqp
-code/osqp/build/
+software/PC/dataset*/*
+software/PC/tflite-env/

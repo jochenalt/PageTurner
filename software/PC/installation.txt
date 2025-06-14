@@ -1,0 +1,48 @@
+--- Version mit Python 3.9, model maker 0.3.3 und tensorflow 2.8.0---
+
+#install python 3.9 from https://www.python.org/ftp/python/3.9.12/python-3.9.12-amd64.exe
+
+# create and activate environment 
+python -m venv tflite-env
+tflite-env\Scripts\activate  # on Windows
+
+python -m pip install --upgrade pip setuptools wheel
+pip install tensorflow==2.10.0
+pip install tflite-model-maker==0.3.4
+
+python.exe -m pip install --upgrade pip
+pip install tflite-model-maker==0.3.4 tensorflow==2.8.0
+
+pip install --upgrade pip
+pip install pip setuptools wheel
+pip install pydub
+pip install numpy scipy matplotlib
+pip install soundfile librosa
+
+#verfy tensorflow
+python -c "import tensorflow as tf; print(tf.__version__)"
+
+--- Version mit Python 3.10.08, model maker 0.4.0 und tensorflow 2.10.0---
+#install python 3.10 from https://www.python.org/ftp/python/3.10.8/python-3.10.8-amd64.exe
+
+# create and activate environment 
+python -m venv tflite-env
+tflite-env\Scripts\activate  # on Windows
+
+pip install scann
+pip install tensorflow==2.10.0
+pip install tflite-model-maker==0.4.0
+
+#Lade das ZIP von https://www.gyan.dev/ffmpeg/builds/
+#Entpacke nach C:\ffmpeg\
+#Füge C:\ffmpeg\bin zum Systempfad hinzu:
+#Windows-Taste → "Umgebungsvariablen bearbeiten" → "Path" → "Neu..." → C:\ffmpeg\bin
+
+# test pyhton script
+from tflite_model_maker import audio_classifier
+from tflite_model_maker.config import ExportFormat
+print("✅ Model Maker import funktioniert!")
+
+
+#verfy tensorflow
+python -c "import tensorflow as tf; print(tf.__version__)"
