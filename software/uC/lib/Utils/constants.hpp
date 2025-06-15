@@ -31,6 +31,6 @@ const uint16_t version = VERSION;
 #define SD_SPI_SCK 13
 
 // commands in the header of communication packets 
-#define CMD_AUDIO_SNIPPET    0xA1       // 1s of audio recording being sent to pyhton
+#define CMD_AUDIO_RECORDING  0xA1       // 1s of audio recording being sent to pyhton
 #define CMD_SAMPLE_COUNT     0xA2       // total number of audio samples (a 2 bytes) being sent in the CMD_AUDIO_SNIPPET command.
 #define CMD_AUDIO_STREAM     0xA3       // audio snippet of a permanend audio stream

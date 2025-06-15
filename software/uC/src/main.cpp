@@ -348,7 +348,7 @@ if (recording && recorder.available()) {
       // send outCount samples at 16 kHz:
       digitalWrite(LED_COMMS_PIN, HIGH);
       size_t totalBytes = outCount * BYTES_PER_SAMPLE;
-      int cmd = CMD_AUDIO_SNIPPET;
+      int cmd = CMD_AUDIO_RECORDING;
       if (evalModeStartWaiting || (evalMode || evalModeEndWaiting)) {
          cmd = CMD_AUDIO_STREAM;
          println("evaluation audio of %i 16kHz samples %u bytes sent", outCount, totalBytes);
