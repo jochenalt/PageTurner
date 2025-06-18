@@ -75,3 +75,9 @@ code/mainboard/.settings/
 software/PC/dataset*/*
 software/PC/tflite-env/
 software/PC/trained_model/
+software/PC/optimised_dataset/back/back_aug_0040.wav
+software/PC/optimised_dataset/
+software/model/dataset/background/Bach.mp3
+software/model/dataset/
+software/PC/pageturner/
+software/PC/venv/

@@ -6,6 +6,7 @@
 #include <EEPROMStorage.hpp>
 #include <utils.hpp>
 #include <constants.hpp>
+#include <AudioFilter.hpp>
 
 #include <Audio.h>                                          // Audio Library for Audio Shield
 #include <Wire.h>                                           // für Verbindung mit Audio Shield 
@@ -29,17 +30,7 @@ AudioConnection      patchCord3(i2s_input, 0, peak, 0);       // Left → Peak d
 AudioConnection      patchCord4(i2s_input, 0, recorder, 0); // record the left line in channel
 AudioControlSGTL5000 audioShield;
 
-// parameter for recording
-#define RECORD_SECONDS 1
-#define INPUT_RATE        44100
-#define OUTPUT_RATE       16000
-#define BYTES_PER_SAMPLE 2
-#define RAW_SAMPLES      (RECORD_SECONDS * INPUT_RATE)   // 44100
-#define OUT_SAMPLES      (RECORD_SECONDS * OUTPUT_RATE)  // 16000
-#define AUDIO_BLOCK_SAMPLES 128
-
 static int16_t audioBuffer[OUT_SAMPLES];  // full 16 kHz output
-static float   dsPosition = 0.0f;         // next raw‐sample read index (in 44.1 kHz space)
 static const float ratio   = INPUT_RATE / (float)OUTPUT_RATE; // ≈2.75625
 bool   recording = false;                  // true, if recording is happening
 
@@ -217,20 +208,22 @@ void executeManualCommand() {
 		} // if (Serial.available())
 }
 
-// Call this once per incoming block:
+// Call this once per incoming block from audio board:
+// Takes a mono 16-Bit Audio-Buffer samples at 44.1 kHz and creates a 
+// newly allocated int16_t-buffer sampled at 16kHz. In between it does:
+//    - Lowpass at  44.1 kHz
+//    - Lineares Resampling auf 16 kHz 
+//    - Bandpass  IIR-Bandpass (300–3400 Hz) bei 16 kHz and conversion in int16
+// und liefert einen
+// neu allokierten int16_t-Buffer bei 16 kHz zurück (muss vom Aufrufer gelöscht werden)
 void processBlock(const int16_t* block, size_t blockLen) {
-  // generate as many 16 kHz samples as fall in this block
-  while (dsPosition < rawPosition + blockLen && outCount < OUT_SAMPLES) {
-    float idxInBlock = dsPosition - rawPosition;
-    int   i = (int)floor(idxInBlock);
-    // 3-tap smoothing
-    int32_t sum = block[i];
-    if (i > 0)                    sum += block[i - 1];
-    if (i + 1 < (int)blockLen)    sum += block[i + 1];
-    audioBuffer[outCount++] = (int16_t)(sum / 3);
-
-    dsPosition += ratio;
-  }
+  size_t produced;
+  static  int16_t filteredBuf[AUDIO_BLOCK_SAMPLES];
+  processAudioBuffer(block, blockLen, filteredBuf, produced);
+  // Kopiere die produced Samples in Dein globales audioBuffer[]
+  size_t copyCnt = min(produced, OUT_SAMPLES - outCount);
+  memcpy(audioBuffer + outCount, filteredBuf, copyCnt * sizeof(int16_t));
+  outCount += copyCnt;
   rawPosition += blockLen;
 }
 
@@ -278,6 +271,9 @@ void setup() {
   audioShield.lineInLevel(config.model.gainLevel);      // Line-in gain (0-15)
   audioShield.dacVolume(1.0);
 
+  // enable filters for real time audio processing pipeline
+  initFilters();
+
   println("Son of Jochen V%i - h for help", version);
 };
 
@@ -322,7 +318,6 @@ void loop() {
       evalModeEndWaiting = false;
       outCount   = 0;
       rawPosition = 0;
-      dsPosition = 0.0;
       recorder.clear();
       recorder.begin();
       if (!evalMode)
