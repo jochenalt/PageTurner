@@ -69,4 +69,23 @@ int run_pageturner_inference_c(const int16_t *raw_audio,
     return 0;
 }
 
+/// Returns the number of entries in ei_classifier_inferencing_categories
+uint32_t get_category_count() {
+    return sizeof(ei_classifier_inferencing_categories)
+         / sizeof(ei_classifier_inferencing_categories[0]);
+}
+
+/// Returns a pointer to the first element of the categories array
+const char** get_categories() {
+    return ei_classifier_inferencing_categories;
+}
+
+/// (Optional) Convenience: get one category by index (or nullptr if OOB)
+const char* get_category(uint32_t idx) {
+    uint32_t n = get_category_count();
+    return (idx < n) ? ei_classifier_inferencing_categories[idx] : nullptr;
+}
+
+
+
 } // extern "C"
