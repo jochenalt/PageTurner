@@ -81,3 +81,8 @@ software/model/dataset/background/Bach.mp3
 software/model/dataset/
 software/PC/pageturner/
 software/PC/venv/
+software/uC/lib/ei_arduino_library/edge-impulse-sdk/
+software/uC/lib/ei_arduino_library/model-parameters/
+software/uC/lib/ei_arduino_library/tflite-model/
+software/uC/lib/ei_arduino_library/PageTurner_inferencing.h
+software/PC/ei_cpp_library/

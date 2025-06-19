@@ -9,6 +9,8 @@
 const long EEPROM_MAGIC_NUMBER = 1565+VERSION;  // magic number to indicate whether the AVR's EEPROM has been initialized already
 
 
+
+
 // This is the configuration memory block that is stored in EEPROM in a "bank". It contains a write_counter for counting the number of 
 // write operations determining the right time when to switch the bank.
 struct configuration_type {

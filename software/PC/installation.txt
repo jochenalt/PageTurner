@@ -3,20 +3,14 @@ in Ubuntu install python 3.7
 
 
 -- activate environment before installation
+deactivate
 python3 -m venv ./venv
 source venv/bin/activate 
 
---- Version mit Python 3.7, model maker 0.3.3 und tensorflow 2.8.0---
-
-#install python 3.7 from https://www.python.org/ftp/python/3.7.4/python-3.7.4-amd64.exe
-
-# create and activate environment 
-deactivate
-rmdir /s /q tflite-env
 python -m venv tflite-env
 tflite-env\Scripts\activate  # on Windows
 python -m ensurepip --upgrade
 python -m pip install --upgrade pip setuptools wheel
 pip install --upgrade pip
 pip install -r requirements.txt
-
+sudo apt update && sudo apt install -y zip unzip

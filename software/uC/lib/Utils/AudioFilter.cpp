@@ -2,7 +2,6 @@
 // AudioFilter.cpp
 #include "AudioFilter.hpp"
 #include "constants.hpp" 
-#define PI 3.14159265358979323846f
 
 // Statische Instanzen der Filter
 static Biquad lpFilter;

@@ -1,4 +1,8 @@
+
+#include "PageTurner_inferencing.h"
+
 #include <Arduino.h>
+
 #include <HardwareSerial.h>
 
 #include <SerialProtocol.hpp>

@@ -8,13 +8,13 @@ CC        := gcc
 FIND      := find
 
 # — Paths
-SDK_DIR        := ../pageturner/edge-impulse-sdk
-MODEL_CPP_DIR  := ../pageturner/tflite-model
+SDK_DIR        := ../ei_cpp_library/edge-impulse-sdk
+MODEL_CPP_DIR  := ../ei_cpp_library/tflite-model
 BUILD_DIR      := build
 TARGET_SO      := $(BUILD_DIR)/libPageTurnerInference.so
 
 # — Flags
-INCLUDES   := -I../pageturner -I$(SDK_DIR)
+INCLUDES   := -I../ei_cpp_library -I$(SDK_DIR)
 CFLAGS     := -fPIC $(INCLUDES)
 CXXFLAGS   := -std=c++11 -fPIC $(INCLUDES)
 LDFLAGS    := -shared -lm -lstdc++
