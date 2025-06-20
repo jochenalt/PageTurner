@@ -1,6 +1,6 @@
 
 
-// #include "PageTurner_inferencing.h"
+#include "PageTurner_inferencing.h"
 
 #include <Arduino.h>
 
@@ -30,21 +30,17 @@ AudioOutputI2S       audioOutput;                           // To headphone outp
 AudioRecordQueue     recorder;                              // record 2s snippets
 
 // use simple (low latency) Biquad filter 2nd order to create a bandpass for speech (300-3400 Hz) at 12db
-AudioFilterBiquad       lowPass1;     
-AudioFilterBiquad       highPass2;      
-AudioFilterBiquad       lowPass2;     
-AudioFilterBiquad       highPass2;      
+AudioFilterBiquad       lowPass;     
+AudioFilterBiquad       highPass;      
 
 AudioFilterFIR          bandpassFIR;
-AudioConnection         patchCord1(i2s_input, 0, lowPass1, 0);
-AudioConnection         patchCord2(lowPass1, 0, lowPass2, 0);
-AudioConnection         patchCord3(lowPass2, 0, highPass2, 0);
-AudioConnection         patchCord4(lowPass2, 0, highPass2, 0);
-AudioConnection         patchCord5(highPass2, 0, audioOutput, 0); // Left channel
-AudioConnection         patchCord6(highPass2, 0, audioOutput, 1); // Right channel (duplicated mono signal)
+AudioConnection         patchCord1(i2s_input, 0, lowPass, 0);
+AudioConnection         patchCord2(lowPass, 0, highPass, 0);
+AudioConnection         patchCord5(highPass, 0, audioOutput, 0); // Left channel
+AudioConnection         patchCord6(highPass, 0, audioOutput, 1); // Right channel (duplicated mono signal)
 
-AudioConnection         patchCord7(highPass2, 0, peak, 0);       // Left → Peak detector
-AudioConnection         patchCord8(highPass2, 0, recorder, 0);   // record the left line in channel
+AudioConnection         patchCord7(highPass, 0, peak, 0);       // Left → Peak detector
+AudioConnection         patchCord8(highPass, 0, recorder, 0);   // record the left line in channel
 
 AudioControlSGTL5000 audioShield;
 
@@ -68,6 +64,39 @@ void println(const char* format, ...) {
     va_end(args);
     LOGSerial.println(s);
 };
+
+
+// callback function required for calling inference
+static int16_t* get_data_buffer_ptr = NULL;
+static int get_data(size_t offset, size_t length, float *out_ptr)
+{
+    numpy::int16_to_float(&get_data_buffer_ptr[offset], out_ptr, length);
+    return 0;
+}
+
+void run_inference(int16_t buffer[],  size_t samples, ei_impulse_result_t &result) {
+    // set the global buffer pointer that get_data will hand over to the model
+    get_data_buffer_ptr = buffer;
+    signal_t signal;
+    signal.total_length = samples;
+    signal.get_data = &get_data;
+
+    EI_IMPULSE_ERROR r = run_classifier(&signal, &result, false);
+    if (r != EI_IMPULSE_OK) {
+        ei_printf("ERR: Failed to run classifier (%d)\n", r);
+        return;
+    }
+
+    // print the predictions
+    println("Predictions (DSP: %d ms, Classification: %d ms, Anomaly: %d ms) (n=%d samples)",
+        result.timing.dsp, result.timing.classification, result.timing.anomaly, samples);
+    for (size_t ix = 0; ix < EI_CLASSIFIER_LABEL_COUNT; ix++) {
+        println("    %s: %.5f", result.classification[ix].label, result.classification[ix].value);
+    }
+#if EI_CLASSIFIER_HAS_ANOMALY == 1
+        ei_printf("    anomaly score: %.3f\n", result.anomaly);
+#endif
+}
 
 
 // Debounced recording button 
@@ -288,10 +317,8 @@ void setup() {
   // A higher Q gives you a sharper roll-off around the cutoff, but at the cost of a resonance peak right at that frequency.
   // A lower Q gives a more gentle, overdamped response with no pronounced peak, but a slower transition.
   // Configure both Biquad filters for low-pass, for a steeper roll-off
-  lowPass1.setLowpass(0, 3400, 0.707);  // Channel, frequency (Hz), Q
-  highPass2.setHighpass(0, 300, 0.707); 
-  lowPass2.setLowpass(0, 3400, 0.707);  // Channel, frequency (Hz), Q
-  highPass2.setHighpass(0, 300, 0.707); 
+  lowPass.setLowpass(0, 3400, 0.707);  // Channel, frequency (Hz), Q
+  highPass.setHighpass(0, 300, 0.707); 
     
   audioShield.enable();
   audioShield.unmuteHeadphone();
@@ -385,7 +412,12 @@ if (recording && recorder.available()) {
       else
         println("recording of %i 16kHz samples %u bytes sent", outCount, totalBytes);
 
+      ei_impulse_result_t result = { 0 };
+      run_inference(audioBuffer, outCount, result);
+
       send_packet(Serial, cmd, (uint8_t*)audioBuffer, totalBytes);
+
+      
       send_packet(Serial, CMD_SAMPLE_COUNT, (uint8_t*)&outCount, sizeof(outCount));
       Serial.flush();
       digitalWrite(LED_COMMS_PIN, LOW);

@@ -2,7 +2,7 @@
 #define SERIAL_PROTOCOL_H
 
 #include <Arduino.h>
-
+#include <constants.hpp>
 // --- Packet Framing Constants ---
 #define PACKET_MAGIC_HI 0xAB
 #define PACKET_MAGIC_LO 0xCD
