@@ -725,8 +725,7 @@ def main():
 
                 if cmd == CMD_AUDIO_STREAM and interpreter is not None:
                         print(f"no model present");
-
-                if cmd == CMD_SAMPLE_COUNT:
+                elif cmd == CMD_SAMPLE_COUNT:
                     if len(payload) != 6:
                         print(f"❌ CMD_SAMPLE_COUNT payload length invalid: {len(payload)}")
                         continue
@@ -735,23 +734,47 @@ def main():
                     total_samples = struct.unpack('<I', sample_data)[0]
                     expected_bytes = total_samples * BYTES_PER_SAMPLE
                     print(f"📦 Sample count: {total_samples} → {expected_bytes} bytes")
-
                     if len(audio_data) == expected_bytes:
-                        save_wav(audio_data, label)
+                        if label is not None:
+                            save_wav(audio_data, label)
+                        else:
+                            import numpy as _np
+
+                            # 1) Turn bytes → int16 samples
+                            samples = _np.frombuffer(audio_data, dtype=_np.int16)
+
+                            # 2) Pad or truncate to exactly TARGET_SAMPLES
+                            if samples.size < TARGET_SAMPLES:
+                                pad_amt = TARGET_SAMPLES - samples.size
+                                samples = _np.pad(samples, (0, pad_amt), mode='constant')
+                            elif samples.size > TARGET_SAMPLES:
+                                samples = samples[:TARGET_SAMPLES]
+
+                            # 3) Play back on PC
+                            sd.play(samples, SAMPLE_RATE)
+                            sd.wait()
+
+                            # 4) Run inference
+                            scores    = model_interface.classify(samples)
+                            pred_idx  = int(_np.argmax(scores))
+                            pred_label= LABELS[pred_idx]
+                            print(f"🔊 Teensy audio inference: {pred_label} (score: {scores[pred_idx]:.4f})")
                     else:
                         print(f"❌ Incomplete data: got {len(audio_data)}, expected {expected_bytes}")
                     audio_data.clear()  # prepare for next
 
-                if label is None:
-                    continue  # wait for label
-
-                if cmd == CMD_AUDIO_RECORDING:
+                elif cmd == CMD_AUDIO_RECORDING:
                     # store audio recording in a buffer. It is only saved if the 
                     # following CMD_SAMPLE_COUNT gives the right number. Otehrwise this
                     # buffer is overwritten next time
                     chunk_idx = payload[0]
                     chunk_total = payload[1]
                     audio_data.extend(payload[2:])
+                    #print(f"received  {len(audio_data)} samples")
+                else:
+                    print(f"unknown command {cmd}")
+
+
 
     finally:
           kbhit.restore_kbhit()

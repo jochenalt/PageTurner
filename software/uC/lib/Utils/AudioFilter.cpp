@@ -103,10 +103,12 @@ void processAudioBuffer(const int16_t* inputBuf, size_t inLen, int16_t outBuf[],
     // 3) Bandpass @ 16 kHz und Rückumwandlung in int16
     for (size_t j = 0; j < outLen; j++) {
         float y = bpFilter.process(tmp16[j]);
+
         float scaled = y * 32767.0f;
         if (scaled >  32767.0f) scaled =  32767.0f;
         if (scaled < -32767.0f) scaled = -32767.0f;
         outBuf[j] = int16_t(scaled);
+
     }
 
 }
