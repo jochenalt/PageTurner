@@ -4,14 +4,12 @@ import os
 import struct
 import wave
 import time
-import msvcrt
 import shutil
 import random
 import numpy as np
 from scipy.io import wavfile
 from scipy.ndimage import shift
 import pathlib
-import tensorflow as tf
 from pydub import AudioSegment
 import glob
 import librosa
@@ -22,8 +20,14 @@ from collections import defaultdict
 import re
 import sounddevice as sd
 from scipy.io.wavfile import write as wav_write
-from pynput import keyboard
 import threading
+from pynput import keyboard
+from collections import deque
+from platform import system
+
+# === local classes ===
+import kbhit
+import model_interface
 
 # === Constants ===
 PACKET_MAGIC_HI    = 0xAB
@@ -48,8 +52,8 @@ TARGET_BYTES      = TARGET_SAMPLES * BYTES_PER_SAMPLE
 DURATION_MS       = (RECORD_SECONDS*1000)
 
 
-LABELS = ['weiter', 'next', 'zurueck', 'back', 'unknown','silence', 'background']
-CMD_LABELS = ['weiter', 'next', 'zurueck', 'back']
+LABELS = model_interface.get_available_labels()
+CMD_LABELS = model_interface.get_available_commands();
 
 audio_data = bytearray()  # outside of main()
 
@@ -64,18 +68,22 @@ def compute_crc8(cmd, length, payload):
     return crc
 
 # === Port Detection ===
+TEENSY_VID = 0x16C0
+TEENSY_PID = 0x0483
 def find_teensy_port():
     ports = list(serial.tools.list_ports.comports())
-    matches = [p for p in ports if "Serielles USB-Gerät" in p.description or "USB Serial Device" in p.description]
     print("Available ports:")
     for p in ports:
-        print(f" - {p.device} ({p.description})")
-    if len(matches) == 1:
-        return matches[0].device
-    elif len(matches) == 0:
-        print("❌ No Teensy port found (with 'Serielles USB-Gerät').")
-    else:
-        print("❌ Multiple matching ports found.")
+        print(f" - {p.device} | {p.description} | VID:PID={p.vid:04X}:{p.pid:04X}")
+    # 1) match by VID/PID
+    for p in ports:
+        if p.vid == TEENSY_VID and p.pid == TEENSY_PID:
+            return p.device
+    # 2) fallback: match Linux naming (/dev/ttyACM* or /dev/ttyUSB*)
+    for p in ports:
+        if p.device.startswith(('/dev/ttyACM', '/dev/ttyUSB')):
+            return p.device
+    print("❌ No Teensy port found.")
     return None
 
 # === Directory Setup ===
@@ -118,68 +126,6 @@ def read_packet(ser):
         print("❌ CRC Mismatch")
         return None
     return cmd, payload
-
-    from collections import deque
-
-from collections import deque
-
-# before mic_test_mode
-STEP_MS         = 200    # distance of sliding windows for inference
-STEP_S          = STEP_MS / 1000.0
-WINDOW_SAMPLES  = TARGET_SAMPLES  # 1 s * 16 kHz
-import python_speech_features as psf
-from collections import deque
-
-def mic_test_mode():
-    print("🧪 Entering mic-test mode. Hold SPACE to start, release to stop.")
-    ring = deque(maxlen=TARGET_SAMPLES)
-    is_running = False
-    last_inference_time = 0.0
-
-    def audio_cb(indata, frames, time_, status):
-        nonlocal is_running, last_inference_time
-        try:
-            ring.extend(indata[:,0])
-            now = time.time()
-            # only infer every 200ms once we have 1s of data
-            if is_running and len(ring) == TARGET_SAMPLES \
-               and now - last_inference_time >= STEP_S:
-                buf = np.array(ring, dtype=np.int16)
-                label, conf = run_inference(buf)
-                print(f"🔊 → {label} ({conf:.2f})")
-                last_inference_time = now
-        except Exception as e:
-            print("⚠️  Inference error:", e)
-
-    def on_press(key):
-        nonlocal is_running
-        if key == keyboard.Key.space and not is_running:
-            print("▶️  Inference started")
-            is_running = True
-
-    def on_release(key):
-        nonlocal is_running
-        if key == keyboard.Key.space:
-            print("⏹️  Inference stopped")
-            is_running = False
-            return False  # stop listener
-
-    # start the audio stream
-    stream = sd.InputStream(
-        samplerate=SAMPLE_RATE,
-        channels=1,
-        dtype='int16',
-        callback=audio_cb
-    )
-    stream.start()
-
-    # explicitly start & join the listener
-    listener = keyboard.Listener(on_press=on_press, on_release=on_release)
-    listener.start()
-    listener.join()
-
-    stream.stop()
-    print("🧪 Exiting mic-test mode.")
 
 
 def record_from_mic(label):
@@ -401,119 +347,7 @@ def validate_dataset(dataset_dir=OPTIMISED_DATASET_DIR):
         for path, reason in invalid_files:
             print(f"{reason:35} -> {path}")
 
-import python_speech_features as psf
 
-# ——————————————————————————————————————————————
-# 1) Sliding-window normalization
-def sliding_norm(mfcc_feats, win_size=151, eps=1e-6):
-    T, D = mfcc_feats.shape
-    normed = np.zeros_like(mfcc_feats, dtype=np.float32)
-    # running sums
-    csum   = np.vstack([np.zeros((1,D)), np.cumsum(mfcc_feats,   axis=0)])
-    csqsum = np.vstack([np.zeros((1,D)), np.cumsum(mfcc_feats**2,axis=0)])
-    for t in range(T):
-        start = max(0, t - win_size + 1)
-        count = t - start + 1
-        s1 = csum[t+1]    - csum[start]
-        s2 = csqsum[t+1]  - csqsum[start]
-        mean = s1/count
-        var  = (s2/count) - (mean**2)
-        std  = np.sqrt(np.maximum(var,0.0)) + eps
-        normed[t] = (mfcc_feats[t] - mean) / std
-    return normed
-
-# ——————————————————————————————————————————————
-# 2) Load TFLite model once
-interpreter = tf.lite.Interpreter(model_path="../model/model.tflite")
-interpreter.allocate_tensors()
-input_details  = interpreter.get_input_details()[0]
-output_details = interpreter.get_output_details()[0]
-
-# ——————————————————————————————————————————————
-# 3) Single‐window inference
-
-# —————————————————————————————————————————
-# Create a 4th-order bandpass at module init
-from scipy.signal import butter, lfilter
-BP_ORDER = 4
-BP_LOWER = 300.0
-BP_UPPER = 3400.0
-BP_B, BP_A = butter(
-    BP_ORDER,
-    [BP_LOWER/(0.5*SAMPLE_RATE), BP_UPPER/(0.5*SAMPLE_RATE)],
-    btype="band"
-)
-def apply_bandpass(x: np.ndarray) -> np.ndarray:
-    """4th-order butterworth bandpass at 300–3400 Hz."""
-    return lfilter(BP_B, BP_A, x)
-
-
-def run_inference(raw_int16: np.ndarray):
-    """
-    raw_int16: 1-D np.int16 array @16 kHz
-    returns: (predicted_label, confidence)
-    """
-    # 1) Normalize to float32 in [–1..1]
-    sig = raw_int16.astype(np.float32) / 32768.0
-
-    # 2) Pre-filter to speech band (300–3400 Hz)
-    sig = lfilter(BP_B, BP_A, sig)
-
-    # 3) Compute MFCC exactly as in Edge Impulse
-    mfcc_feats = psf.mfcc(
-        sig,
-        samplerate=SAMPLE_RATE,
-        winlen=0.025,     # 25 ms
-        winstep=0.020,    # 20 ms
-        numcep=13,
-        nfilt=32,
-        nfft=512,
-        lowfreq=80,
-        highfreq=8000,
-        preemph=0.98
-    )
-    mfcc_feats = sliding_norm(mfcc_feats, win_size=151)
-
-    # 4) Truncate/pad to exactly match model’s flat‐MFCC length
-    total_feats = input_details['shape'][1]       # e.g. 637
-    ncep        = mfcc_feats.shape[1]            # should be 13
-    exp_frames  = total_feats // ncep            # should be 49
-
-    # truncate or pad frames
-    if mfcc_feats.shape[0] > exp_frames:
-        mfcc_feats = mfcc_feats[:exp_frames]
-    elif mfcc_feats.shape[0] < exp_frames:
-        pad = np.zeros((exp_frames - mfcc_feats.shape[0], ncep), dtype=mfcc_feats.dtype)
-        mfcc_feats = np.vstack([mfcc_feats, pad])
-
-    # 5) Flatten + batch
-    inp = mfcc_feats.flatten()[np.newaxis, :].astype(np.float32)
-
-    # 6) Quantize if needed
-    dtype = input_details['dtype']
-    if dtype != np.float32:
-        scale, zp = input_details['quantization']
-        q = np.round(inp / scale + zp)
-        inp = np.clip(q, np.iinfo(dtype).min, np.iinfo(dtype).max).astype(dtype)
-
-    # 7) Run inference
-    interpreter.set_tensor(input_details['index'], inp)
-    interpreter.invoke()
-    out = interpreter.get_tensor(output_details['index'])
-
-    # 8) Dequantize output if needed
-    if output_details['dtype'] != np.float32:
-        scale, zp = output_details['quantization']
-        out = (out.astype(np.float32) - zp) * scale
-
-    probs = np.squeeze(out)
-    idx   = int(np.argmax(probs))
-
-    # 9) Optional silence gate
-    energy = np.mean(sig * sig)
-    if energy < 1e-4 or probs[idx] < 0.6:
-        return "silence", float(probs[idx])
-    return LABELS[idx], float(probs[idx])
 
 def augment_balance(
     optimised_dir=OPTIMISED_DATASET_DIR,
@@ -707,42 +541,74 @@ def augment_balance(
     print(f"✔️ '{silence_label}': {curr}→{counter}")
 
 
-# === Main Program ===
+def run_pc_mic_mode(input_device=None,
+        samplerate=16000, channels=1,
+        window_duration=1.0, step_duration=0.05):
+    """
+    Continuously reads from the PC microphone and runs inference on
+    a rolling window of `window_duration` seconds, updated every
+    `step_duration` seconds. Prints stable detections (4 consecutive).
+    Exit cleanly on ESC.
+    """
+    window_samples = int(samplerate * window_duration)
+    step_samples   = int(samplerate * step_duration)
+    ignore = {'silence','background','unknown'}
 
-def main():
-    # Eval-Mode State
-    audio_stream_buffer = []                # 1 s Fenster (16 000 Samples)
-    last_inference_time = 0.0
-    interpreter = None
-    input_details = output_details = None
-    mic_mode = False;
+    print(f"🎙  PC‐mic inference: window={window_duration}s step={step_duration}s")
+    print("Press ESC to exit.")
 
-    create_dataset_dirs()
-    create_optimised_dataset_dirs()
-    port = find_teensy_port()
-    ser = None
+    # ring buffer for last `window_samples`
+    buf = np.zeros(window_samples, dtype=np.int16)
+    prev_label = None
+    count = 0
 
-    if port:
-        try:
-            ser = serial.Serial(port, 115200, timeout=1)
-            print(f"📡 Listening on {port}...")
-        except serial.SerialException as e:
-            print(f"⚠️ Failed to open serial port: {e}")
-            ser = None
-    else:
-        print("⚠️ No Teensy connected, recording disabled.")
+    try:
+        with sd.InputStream(device=input_device,
+                             samplerate=samplerate,
+                             channels=channels,
+                             dtype='int16',
+                             blocksize=step_samples) as stream:
+            while True:
+                # 1) Check for ESC key
+                if kbhit.kbhit():
+                    ch = kbhit.getch()
+                    if ch and ord(ch) == 27:  # ESC
+                        print("\n🚪 Exiting PC‐mic inference.")
+                        break
+
+                # 2) Read next audio block
+                data, overflow = stream.read(step_samples)
+                if overflow:
+                    print("⚠️  Overflow")
+                frame = data.flatten()
+
+                # 3) Slide window
+                buf[:-step_samples] = buf[step_samples:]
+                buf[-step_samples:] = frame
+
+                # 4) Run inference
+                scores     = model_interface.classify(buf)
+                pred_idx   = int(np.argmax(scores))
+                pred_label = LABELS[pred_idx]
+
+                # 5) Debounce and print
+                if pred_label == prev_label:
+                    count += 1
+                else:
+                    prev_label  = pred_label
+                    count       = 1
+
+                if count == 4 and pred_label not in ignore:
+                    print(f"Detected: {pred_label} (score: {scores[pred_idx]:.4f})")
+
+    finally:
+        print("🛑 PC‐mic inference stopped.")
+        # if you initialized kbhit in main(), you'll restore it there
 
 
-    if port:
-        ser = serial.Serial(port, 115200, timeout=1)
-        print(f"📡 Listening on {port}...")
-    else:
-        ser = None
-        print("⚠️ No Teensy connected, recording disabled.")
 
-
-    print(f"📡 Listening on {port}...")
-
+def print_menu():
+    """Show the list of commands to the user."""
     print("Commands:")
     for i, l in enumerate(LABELS):
         print(f" {i} - record label '{l}'")
@@ -751,99 +617,144 @@ def main():
     print(" s - use PC microphone for inference test")
     print(" h - help")
     print(" q - quit")
-
-    label = None
     print("🎛️  Press number key (0–5) to select label. Press Teensy button to record.")
 
-    while True:
-        # check keyboard without blocking
-        if msvcrt.kbhit():
-            key = msvcrt.getch().decode('utf-8').lower()
-            if mic_mode and key != ' ':
-                mic_mode = False
 
-            if key == 'o':
-                print("🚀 Starting dataset optimisation...")
-                optimise_dataset()
-                augment_balance()
-                count_files_per_label();
-                validate_dataset()
-                print("✅ Optimisation complete.")
-            elif key == 'm':
+# === Main Program ===
+
+def main():
+    kbhit.init_kbhit()
+    try:
+        # Eval-Mode State
+        audio_stream_buffer = []                # 1 s Fenster (16 000 Samples)
+        last_inference_time = 0.0
+        interpreter = None
+        input_details = output_details = None
+        mic_mode = False;
+
+        create_dataset_dirs()
+        create_optimised_dataset_dirs()
+        port = find_teensy_port()
+        ser = None
+
+        if port:
+            try:
+                ser = serial.Serial(port, 115200, timeout=1)
+                print(f"📡 Listening on {port}...")
+            except serial.SerialException as e:
+                print(f"⚠️ Failed to open serial port: {e}")
+                ser = None
+        else:
+            print("⚠️ No Teensy connected, recording disabled.")
+
+
+        if port:
+            ser = serial.Serial(port, 115200, timeout=1)
+            print(f"📡 Listening on {port}...")
+        else:
+            ser = None
+            print("⚠️ No Teensy connected, recording disabled.")
+
+
+        print(f"📡 Listening on {port}...")
+
+        print_menu();
+
+        label = None
+
+        while True:
+            # check keyboard without blocking
+            if kbhit.kbhit():
+                key = kbhit.getch()
+                if mic_mode and key != ' ':
+                    mic_mode = False
+
+                if key == 'o':
+                    print("🚀 Starting dataset optimisation...")
+                    optimise_dataset()
+                    augment_balance()
+                    count_files_per_label();
+                    validate_dataset()
+                    print("✅ Optimisation complete.")
+                elif key == 'm':
+                    if label is None:
+                        print("❌ Please select a label (0–7) first.")
+                        continue
+                    mic_mode = True
+                elif key == 's':
+                    # read the default input device once:
+                    default_dev = sd.default.device[0]
+                    run_pc_mic_mode(input_device=default_dev,
+                                      samplerate=SAMPLE_RATE,
+                                      channels=1,
+                                      window_duration=1.0,
+                                      step_duration=0.05)
+                    print("🎛️  Back to main menu. Select label or command:")
+                    continue
+                elif key == 'q':
+                    print("👋 Exiting.")
+                    break
+                elif key == 'h':
+                    print_menu();
+                    continue
+                elif key in [str(i) for i in range(len(LABELS))]:
+                    label = LABELS[int(key)]
+                    print(f"✅ Selected label: '{label}'")
+                    continue
+                elif key == ' ':
+                    print("ℹ️  Space pressed in main menu (no effect here).")
+                else:
+                    print(f"❓ Invalid key: '{key}'")
+
+            if mic_mode:
                 if label is None:
                     print("❌ Please select a label (0–7) first.")
                     continue
-                mic_mode = True
-            elif key == 's':
-                mic_test_mode()
-                # when done, re-print the top-level menu:
-                print("🎛️  Back to main menu. Select label or command:")
-                continue
-            elif key == 'q':
-                print("👋 Exiting.")
-                break
-            elif key == 'h':
-                print("Available commands:")
-                for i, l in enumerate(LABELS):
-                    print(f" {i} - record label '{l}'")
-                print(" t - training")
-
-                continue
-            elif key in [str(i) for i in range(len(LABELS))]:
-                label = LABELS[int(key)]
-                print(f"✅ Selected label: '{label}'")
-                continue
-            elif key == ' ':
-                print("ℹ️  Space pressed in main menu (no effect here).")
-            else:
-                print(f"❓ Invalid key: '{key}'")
-
-        if mic_mode:
-            if label is None:
-                print("❌ Please select a label (0–7) first.")
-                continue
-            record_from_mic(label)
-            if label in CMD_LABELS:
-                mic_mode = False
+                record_from_mic(label)
+                if label in CMD_LABELS:
+                    mic_mode = False
 
 
-        # look for packets
-        if ser and ser.in_waiting:
-            result = read_packet(ser)
-            if not result:
-                continue
-            cmd, payload = result
-            #print(f">> Received packet cmd=0x{cmd:02X} len={len(payload)}")
-
-            if cmd == CMD_AUDIO_STREAM and interpreter is not None:
-                    print(f"no model present");
-
-            if cmd == CMD_SAMPLE_COUNT:
-                if len(payload) != 6:
-                    print(f"❌ CMD_SAMPLE_COUNT payload length invalid: {len(payload)}")
+            # look for packets
+            if ser and ser.in_waiting:
+                result = read_packet(ser)
+                if not result:
                     continue
+                cmd, payload = result
+                #print(f">> Received packet cmd=0x{cmd:02X} len={len(payload)}")
 
-                sample_data = payload[2:6]
-                total_samples = struct.unpack('<I', sample_data)[0]
-                expected_bytes = total_samples * BYTES_PER_SAMPLE
-                print(f"📦 Sample count: {total_samples} → {expected_bytes} bytes")
+                if cmd == CMD_AUDIO_STREAM and interpreter is not None:
+                        print(f"no model present");
 
-                if len(audio_data) == expected_bytes:
-                    save_wav(audio_data, label)
-                else:
-                    print(f"❌ Incomplete data: got {len(audio_data)}, expected {expected_bytes}")
-                audio_data.clear()  # prepare for next
+                if cmd == CMD_SAMPLE_COUNT:
+                    if len(payload) != 6:
+                        print(f"❌ CMD_SAMPLE_COUNT payload length invalid: {len(payload)}")
+                        continue
 
-            if label is None:
-                continue  # wait for label
+                    sample_data = payload[2:6]
+                    total_samples = struct.unpack('<I', sample_data)[0]
+                    expected_bytes = total_samples * BYTES_PER_SAMPLE
+                    print(f"📦 Sample count: {total_samples} → {expected_bytes} bytes")
 
-            if cmd == CMD_AUDIO_RECORDING:
-                # store audio recording in a buffer. It is only saved if the 
-                # following CMD_SAMPLE_COUNT gives the right number. Otehrwise this
-                # buffer is overwritten next time
-                chunk_idx = payload[0]
-                chunk_total = payload[1]
-                audio_data.extend(payload[2:])
+                    if len(audio_data) == expected_bytes:
+                        save_wav(audio_data, label)
+                    else:
+                        print(f"❌ Incomplete data: got {len(audio_data)}, expected {expected_bytes}")
+                    audio_data.clear()  # prepare for next
+
+                if label is None:
+                    continue  # wait for label
+
+                if cmd == CMD_AUDIO_RECORDING:
+                    # store audio recording in a buffer. It is only saved if the 
+                    # following CMD_SAMPLE_COUNT gives the right number. Otehrwise this
+                    # buffer is overwritten next time
+                    chunk_idx = payload[0]
+                    chunk_total = payload[1]
+                    audio_data.extend(payload[2:])
+
+    finally:
+          kbhit.restore_kbhit()
 
 if __name__ == "__main__":
     main()

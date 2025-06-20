@@ -86,3 +86,4 @@ software/uC/lib/ei_arduino_library/model-parameters/
 software/uC/lib/ei_arduino_library/tflite-model/
 software/uC/lib/ei_arduino_library/PageTurner_inferencing.h
 software/PC/ei_cpp_library/
+software/PC/__pycache__/

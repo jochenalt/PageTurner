@@ -1,5 +1,6 @@
 
-#include "PageTurner_inferencing.h"
+
+// #include "PageTurner_inferencing.h"
 
 #include <Arduino.h>
 
@@ -25,13 +26,19 @@ bool levelMeterOn = false;                                  // shows a peak mete
 // Audio signal routing
 AudioAnalyzePeak     peak;                                  // Peak detector, just for show
 AudioInputI2S        i2s_input;                             // Audio from MAX9814 via Audio Shield LINE IN
-AudioOutputI2S       i2s_output;                            // To headphone output
+AudioOutputI2S       audioOutput;                           // To headphone output
 AudioRecordQueue     recorder;                              // record 2s snippets
 
-AudioConnection      patchCord1(i2s_input, 0, i2s_output, 0); // Left channel
-// AudioConnection      patchCord2(i2s_input, 1, i2s_output, 1); // Right channel
-AudioConnection      patchCord3(i2s_input, 0, peak, 0);       // Left → Peak detector
-AudioConnection      patchCord4(i2s_input, 0, recorder, 0); // record the left line in channel
+AudioFilterBiquad       lowPass;     
+AudioFilterBiquad       highPass;      
+AudioConnection         patchCord1(i2s_input, 0, lowPass, 0);
+AudioConnection         patchCord2(lowPass, 0, highPass, 0);
+AudioConnection         patchCord3(highPass, 0, audioOutput, 0); // Left channel
+AudioConnection         patchCord4(highPass, 0, audioOutput, 1); // Right channel (duplicated mono signal)
+
+AudioConnection         patchCord5(highPass, 0, peak, 0);       // Left → Peak detector
+AudioConnection         patchCord6(highPass, 0, recorder, 0);   // record the left line in channel
+
 AudioControlSGTL5000 audioShield;
 
 static int16_t audioBuffer[OUT_SAMPLES];  // full 16 kHz output
@@ -268,8 +275,18 @@ void setup() {
 
   // Enable the audio shield+
   AudioMemory(80);                                      // Allocate audio processing memory
+  
+  // initialise speech bandpass filter (300Hz - 3400 Hz)
+  // Butterworth value Q:  “peakedness” or damping of the filter’s transition band.
+  // A higher Q gives you a sharper roll-off around the cutoff, but at the cost of a resonance peak right at that frequency.
+  // A lower Q gives a more gentle, overdamped response with no pronounced peak, but a slower transition.
+  // Configure both Biquad filters for low-pass, for a steeper roll-off
+  lowPass.setLowpass(0, 3400, 0.707);  // Channel, frequency (Hz), Q
+  highPass.setHighpass(0, 300, 0.707); 
+  
   audioShield.enable();
-  audioShield.adcHighPassFilterDisable();
+  audioShield.unmuteHeadphone();
+  audioShield.adcHighPassFilterEnable();
   audioShield.inputSelect(AUDIO_INPUT_LINEIN);          // Use line-in (for MAX9814)
   audioShield.volume(0.3);                              // Headphone volume 0.0 - 1.0
   audioShield.lineInLevel(config.model.gainLevel);      // Line-in gain (0-15)

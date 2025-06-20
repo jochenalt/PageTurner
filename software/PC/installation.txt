@@ -13,4 +13,12 @@ python -m ensurepip --upgrade
 python -m pip install --upgrade pip setuptools wheel
 pip install --upgrade pip
 pip install -r requirements.txt
+pip install getch
+pip install scipy
+pip install pydub
+pip install librosa
+pip install pynput
+
 sudo apt update && sudo apt install -y zip unzip
+
+install usbPD from https://github.com/dorssel/usbipd-win/releases on windows
