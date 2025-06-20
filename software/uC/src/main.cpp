@@ -414,11 +414,26 @@ if (recording && recorder.available()) {
 
       ei_impulse_result_t result = { 0 };
       run_inference(audioBuffer, outCount, result);
-
       send_packet(Serial, cmd, (uint8_t*)audioBuffer, totalBytes);
 
+
+      // pack the CMD_SAMPLE_COUNT packet that consist of the sample count, the class count, and the inference  values
+      size_t class_count = EI_CLASSIFIER_LABEL_COUNT;
+      size_t buffer_len = sizeof(outCount)+sizeof(class_count) + class_count*sizeof(float);
+      uint8_t buffer[buffer_len];
+      size_t offset = 0;
+      memcpy ((uint8_t*)&buffer[offset], (uint8_t*)&outCount, sizeof(outCount));
+      offset += sizeof(outCount);
+      memcpy ((uint8_t*)&buffer[offset], (uint8_t*)&class_count, sizeof(class_count));
+      offset += sizeof(class_count);
       
-      send_packet(Serial, CMD_SAMPLE_COUNT, (uint8_t*)&outCount, sizeof(outCount));
+      for (size_t i = 0;i<class_count;i++) {
+        float score = result.classification[i].value;
+        memcpy ((uint8_t*)&buffer[offset], (uint8_t*)&score, sizeof(score));
+        offset += sizeof(score);
+      }
+      
+      send_packet(Serial, CMD_SAMPLE_COUNT, (uint8_t*)buffer, buffer_len);
       Serial.flush();
       digitalWrite(LED_COMMS_PIN, LOW);
 

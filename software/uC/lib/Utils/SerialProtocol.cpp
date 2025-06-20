@@ -78,13 +78,13 @@ void send_packet(Stream& s, uint8_t cmd, const uint8_t* payload, uint16_t len) {
     s.write(compute_crc8(cmd, final_len, frame));
 
     if (cmd == CMD_SAMPLE_COUNT) {
-      LOGSerial.println("CMD_SAMPLECOUNT");
+      LOGSerial.print("CMD_SAMPLECOUNT");
 
-      LOGSerial.print(PACKET_MAGIC_HI, HEX);      LOGSerial.print(' ');
-      LOGSerial.print(PACKET_MAGIC_LO, HEX);      LOGSerial.print(' ');
-      LOGSerial.print(cmd, HEX);      LOGSerial.print('  ');
+      LOGSerial.print(PACKET_MAGIC_HI, HEX);      
+      LOGSerial.print(PACKET_MAGIC_LO, HEX);      LOGSerial.print("  ");
+      LOGSerial.print(cmd, HEX);      LOGSerial.print("  ");
       LOGSerial.print((final_len >> 8) & 0xFF, HEX);      LOGSerial.print(' ');
-      LOGSerial.print(final_len & 0xFF, HEX);      LOGSerial.print('  '); 
+      LOGSerial.print(final_len & 0xFF, HEX);      LOGSerial.print("  "); 
       for (int i = 0;i<final_len;i++) {
         LOGSerial.print( frame[i], HEX);      LOGSerial.print(' ');
       }

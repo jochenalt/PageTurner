@@ -726,27 +726,39 @@ def main():
                 if cmd == CMD_AUDIO_STREAM and interpreter is not None:
                         print(f"no model present");
                 elif cmd == CMD_SAMPLE_COUNT:
-                    if len(payload) != 6:
-                        print(f"❌ CMD_SAMPLE_COUNT payload length invalid: {len(payload)}")
-                        continue
+                    print(f"❌ CMD_SAMPLE_COUNT payload length: {len(payload)}")
+    
+                    total_samples = struct.unpack('<I', payload[2:6])[0]
+                    print(f"📦 total_samples: {total_samples}")
+                    class_count = struct.unpack('<I', payload[6:10])[0]
+                    print(f"📦 class_count: {class_count}")
+                    teensy_scores = []
+                    offset = 10
+                    for i in range(class_count):
+                        score = struct.unpack('<f', payload[offset:offset+4])[0]
+                        teensy_scores.append(score)
+                        offset += 4
+                    pred_idx  = int(np.argmax(teensy_scores))
+                    pred_label= LABELS[pred_idx]
 
-                    sample_data = payload[2:6]
-                    total_samples = struct.unpack('<I', sample_data)[0]
+                    print(f"C++ scores: {', '.join(f'{label}={score:.5f}' for label, score in zip(LABELS, teensy_scores))}")
+                    print(f"      --> : {pred_label}")
+
+                    
                     expected_bytes = total_samples * BYTES_PER_SAMPLE
                     print(f"📦 Sample count: {total_samples} → {expected_bytes} bytes")
                     if len(audio_data) == expected_bytes:
                         if label is not None:
                             save_wav(audio_data, label)
                         else:
-                            import numpy as _np
 
                             # 1) Turn bytes → int16 samples
-                            samples = _np.frombuffer(audio_data, dtype=_np.int16)
+                            samples = np.frombuffer(audio_data, dtype=np.int16)
 
                             # 2) Pad or truncate to exactly TARGET_SAMPLES
                             if samples.size < TARGET_SAMPLES:
                                 pad_amt = TARGET_SAMPLES - samples.size
-                                samples = _np.pad(samples, (0, pad_amt), mode='constant')
+                                samples = np.pad(samples, (0, pad_amt), mode='constant')
                             elif samples.size > TARGET_SAMPLES:
                                 samples = samples[:TARGET_SAMPLES]
 
@@ -756,9 +768,11 @@ def main():
 
                             # 4) Run inference
                             scores    = model_interface.classify(samples)
-                            pred_idx  = int(_np.argmax(scores))
+                            pred_idx  = int(np.argmax(scores))
                             pred_label= LABELS[pred_idx]
-                            print(f"🔊 Teensy audio inference: {pred_label} (score: {scores[pred_idx]:.4f})")
+                            print(f"C++ scores: {', '.join(f'{label}={score:.5f}' for label, score in zip(LABELS, scores))}")
+                            print(f"      --> : {pred_label}")
+
                     else:
                         print(f"❌ Incomplete data: got {len(audio_data)}, expected {expected_bytes}")
                     audio_data.clear()  # prepare for next
