@@ -21,7 +21,6 @@
 bool commandPending = false;                                // true if command processor saw a command coming and is waiting for more input
 String command;                                             // current command coming in
 uint32_t commandLastChar_us = 0;                            // time when the last character came in (to reset command if no further input comes in) 
-bool levelMeterOn = false;                                  // shows a peak meter 
 
 // Audio signal routing
 AudioAnalyzePeak     peak;                                  // Peak detector, just for show
@@ -48,10 +47,6 @@ static int16_t audioBuffer[OUT_SAMPLES];  // full 16 kHz output
 static const float ratio = INPUT_RATE / (float)OUTPUT_RATE; // ≈2.75625
 bool   recording = false;                  // true, if recording is happening
 
-// State‐Variablen für den Eval Mode
-static bool evalMode = false;
-static bool  evalModeStartWaiting = 0;
-static bool evalModeEndWaiting = false;
 // counters
 size_t outCount = 0;
 static size_t  rawPosition = 0;           // total raw samples consumed so far
@@ -65,6 +60,14 @@ void println(const char* format, ...) {
     LOGSerial.println(s);
 };
 
+void print(const char* format, ...) {
+    char s[256];
+ 	  __gnuc_va_list  args;		
+    va_start(args, format);
+    vsprintf (s, format, args);
+    va_end(args);
+    LOGSerial.print(s);
+};
 
 // callback function required for calling inference
 static int16_t* get_data_buffer_ptr = NULL;
@@ -74,7 +77,7 @@ static int get_data(size_t offset, size_t length, float *out_ptr)
     return 0;
 }
 
-void run_inference(int16_t buffer[],  size_t samples, ei_impulse_result_t &result) {
+void run_inference(int16_t buffer[],  size_t samples, ei_impulse_result_t &result, uint16_t &pred_no) {
     // set the global buffer pointer that get_data will hand over to the model
     get_data_buffer_ptr = buffer;
     signal_t signal;
@@ -88,11 +91,18 @@ void run_inference(int16_t buffer[],  size_t samples, ei_impulse_result_t &resul
     }
 
     // print the predictions
-    println("Predictions (DSP: %d ms, Classification: %d ms, Anomaly: %d ms) (n=%d samples)",
+    println("Predictions (DSP: %d ms, inf: %d ms) (n=%d samples)",
         result.timing.dsp, result.timing.classification, result.timing.anomaly, samples);
+    float score = 0;
+    pred_no = -1;
     for (size_t ix = 0; ix < EI_CLASSIFIER_LABEL_COUNT; ix++) {
-        println("    %s: %.5f", result.classification[ix].label, result.classification[ix].value);
+        if (score < result.classification[ix].value) {
+          pred_no = ix;
+          score = result.classification[ix].value;
+        }
+        print(" %s:%.3f", result.classification[ix].label, result.classification[ix].value);
     }
+    println("pred= %s", result.classification[pred_no].label);
 #if EI_CLASSIFIER_HAS_ANOMALY == 1
         ei_printf("    anomaly score: %.3f\n", result.anomaly);
 #endif
@@ -229,20 +239,6 @@ void executeManualCommand() {
 					addCmd(inputChar);
 				break;
       }
- 			case 'l': {
-				if (command == "")
-					levelMeterOn = true;
-				else
-					addCmd(inputChar);
-				break;
-      }
- 			case 'L': {
-				if (command == "")
-					levelMeterOn = false;
-				else
-					addCmd(inputChar);
-				break;
-      }
 
       case 10:
 			case 13:
@@ -352,34 +348,16 @@ void loop() {
   static bool buttonState=false;                             // state after the action, true = pushed
   bool buttonChange = checkButton(buttonState); // true if turned off or turned on
 
-  // any push during evaluation mode stops it, but we finish the last snippet
-  if (evalMode && buttonChange && buttonState) {
-    evalMode = false;
-    evalModeStartWaiting = false;
-  
-    // if we are in the middle of a recording block, end this with the eval command
-    if (recording)
-      evalModeEndWaiting = true;
-  }
-
-  // if we are in recording and release the button in time, we do not wait for an evaluation mode anymore
-  if (!evalMode && recording && buttonChange && !buttonState) {
-        evalModeStartWaiting = false;
-  }
-
   // start audio if evaluation mode is on or we pushed the button
-  if ((evalMode && !recording) || (!recording && buttonChange && buttonState)) { 
+  if ((!recording && buttonChange && buttonState)) { 
       // <1s: normaler 1s-Schnipsel-Aufnahme-Modus
       digitalWrite(LED_RECORDING_PIN, HIGH);
       recording = true;
-      evalModeEndWaiting = false;
       outCount   = 0;
       rawPosition = 0;
       recorder.clear();
       recorder.begin();
-      if (!evalMode)
-        LOGSerial.println("start recording");
-      evalModeStartWaiting = millis();
+      LOGSerial.println("start recording");
   }
 
     // 2) While recording, fill rawBuffer FULL 88 200 samples:
@@ -401,21 +379,12 @@ if (recording && recorder.available()) {
       digitalWrite(LED_COMMS_PIN, HIGH);
       size_t totalBytes = outCount * BYTES_PER_SAMPLE;
       int cmd = CMD_AUDIO_RECORDING;
-      if (evalModeStartWaiting || (evalMode || evalModeEndWaiting)) {
-         cmd = CMD_AUDIO_STREAM;
-         println("evaluation audio of %i 16kHz samples %u bytes sent", outCount, totalBytes);
-         
-         if (evalModeEndWaiting)
-           LOGSerial.println("end evaluation stream");
-         evalModeEndWaiting = false;
-      }
-      else
-        println("recording of %i 16kHz samples %u bytes sent", outCount, totalBytes);
+      println("recording of %i 16kHz samples %u bytes sent", outCount, totalBytes);
 
       ei_impulse_result_t result = { 0 };
-      run_inference(audioBuffer, outCount, result);
+      uint16_t pred_no;
+      run_inference(audioBuffer, outCount, result, pred_no);
       send_packet(Serial, cmd, (uint8_t*)audioBuffer, totalBytes);
-
 
       // pack the CMD_SAMPLE_COUNT packet that consist of the sample count, the class count, and the inference  values
       size_t class_count = EI_CLASSIFIER_LABEL_COUNT;
@@ -436,49 +405,10 @@ if (recording && recorder.available()) {
       send_packet(Serial, CMD_SAMPLE_COUNT, (uint8_t*)buffer, buffer_len);
       Serial.flush();
       digitalWrite(LED_COMMS_PIN, LOW);
-
-      // if button is still pushed, turn on evaluation mode
-      if (evalModeStartWaiting) {
-        evalMode = true;
-        evalModeStartWaiting = false;
-        evalModeEndWaiting = false;
-      }
     }
 }
 
-  // Kontinuierliches Streaming, sobald evalMode aktiv ist
-if (evalMode && recorder.available()) {
-  while (recorder.available()) {
-    int16_t* block = (int16_t*)recorder.readBuffer();
-    // jedes AudioBlock (128 Samples → 256 Bytes) als Packet senden
-    digitalWrite(LED_RECORDING_PIN, LOW);
-    digitalWrite(LED_COMMS_PIN, HIGH);
-    send_packet(Serial, CMD_AUDIO_STREAM,
-                (uint8_t*)block,
-                AUDIO_BLOCK_SAMPLES * sizeof(int16_t));
-    recorder.freeBuffer();
-    digitalWrite(LED_COMMS_PIN, LOW);
-    digitalWrite(LED_RECORDING_PIN, HIGH);
-  }
-}
-
-  // Check every 100ms
-  if (levelMeterOn) {
-    static unsigned long lastPrint = 0;
-    if (millis() - lastPrint >= 100) {
-      lastPrint = millis();
-      if (peak.available()) {
-        float peakLevel = peak.read();
-        int bar = peakLevel * 50.;  // scale 0.0–1.0 to 0–50
-        LOGSerial.print("Peak: ");
-        for (int i = 0; i < bar; i++) 
-          LOGSerial.print("#");
-        LOGSerial.println();
-      }
-    }
-  }
-
-  // react on manual input from Serial 
-  executeManualCommand();
+// react on manual input from Serial 
+executeManualCommand();
 
 }

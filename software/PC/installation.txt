@@ -25,5 +25,6 @@ install usbPD from https://github.com/dorssel/usbipd-win/releases on windows
 in powershell:
 #look for  the teensy device and get the number x-y (in my case 5-2)
 >usbipd list 
+usbipd wsl bind --busid 5-2
 # this has to be done everytime teensy reboots
-usbipd attach --wsl --busid <the id you found>
+usbipd attach --wsl --busid 5-2
