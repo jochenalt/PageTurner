@@ -83,7 +83,7 @@ static int get_data(size_t offset, size_t length, float *out_ptr)
     return 0;
 }
 
-void run_inference(int16_t buffer[],  size_t samples, ei_impulse_result_t &result, uint16_t &pred_no) {
+void run_inference(int16_t buffer[],  size_t samples, ei_impulse_result_t &result, int &pred_no) {
     // set the global buffer pointer that get_data will hand over to the model
     get_data_buffer_ptr = buffer;
     signal_t signal;
@@ -97,8 +97,7 @@ void run_inference(int16_t buffer[],  size_t samples, ei_impulse_result_t &resul
     }
 
     // print the predictions
-    print("Inference (DSP: %d ms, classifier: %d ms) (n=%d samples)",
-        result.timing.dsp, result.timing.classification, result.timing.anomaly, samples);
+    // print("Inference (DSP: %d ms, classifier: %d ms) (n=%d samples)", result.timing.dsp, result.timing.classification, result.timing.anomaly, samples);
     float score = 0;
     pred_no = -1;
     for (size_t ix = 0; ix < EI_CLASSIFIER_LABEL_COUNT; ix++) {
@@ -106,9 +105,9 @@ void run_inference(int16_t buffer[],  size_t samples, ei_impulse_result_t &resul
           pred_no = ix;
           score = result.classification[ix].value;
         }
-        print(" %s:%.3f", result.classification[ix].label, result.classification[ix].value);
+        // print(" %s:%.3f", result.classification[ix].label, result.classification[ix].value);
     }
-    println(" pred=%s", result.classification[pred_no].label);
+    // println(" pred=%s", result.classification[pred_no].label);
 #if EI_CLASSIFIER_HAS_ANOMALY == 1
         ei_printf("    anomaly score: %.3f\n", result.anomaly);
 #endif
@@ -249,6 +248,9 @@ void executeManualCommand() {
 					production_mode = !production_mode;
           if (production_mode) {
             LOGSerial.println("production mode on");
+            outCount   = 0;
+            rawPosition = 0;
+            recorder.clear();
           } else 
           {
             LOGSerial.println("production mode off");
@@ -396,46 +398,41 @@ void loop() {
   }
 
   if (production_mode) {
+    
     // read all available samples
     int bytes_avail = recorder.available();
+    const int inference_freq = 20;                 // [Hz], every 50ms we run inference
+    const int fetch_raw_samples = INPUT_RATE / inference_freq ;
     if (bytes_avail > 0) {
-      print("Audio:");
-      while ((bytes_avail>0) && rawPosition < RAW_SAMPLES) {
+      while (recorder.available() && rawPosition < fetch_raw_samples) {
         int16_t* block = (int16_t*)recorder.readBuffer();
-        int bytes_left = bytes_avail;
-        while (bytes_left > 0) {
-          // limit to available buffer size (max = RAW_SAMPLES)
-          size_t toCopy = min((size_t)AUDIO_BLOCK_SAMPLES, RAW_SAMPLES - rawPosition);
-          // limit to bytes_left
-          toCopy = min(toCopy, bytes_left);
-
-          processBlock(block, toCopy);
-          bytes_left -= toCopy;
-        }  
+        size_t toCopy = min((size_t)AUDIO_BLOCK_SAMPLES, fetch_raw_samples - rawPosition);
+        processBlock(block, toCopy);
         recorder.freeBuffer();
-        bytes_avail = recorder.available();
       }
-      println("outCount %i ", outCount);
 
-      // push new audio information to queue
-      static uint16_t audioWindow[OUT_SAMPLES];
-      size_t totalBytes = outCount * BYTES_PER_SAMPLE;
-      memcpy ((uint8_t*)&audioWindow[outCount],(uint8_t*)&audioWindow[0], totalBytes);
-      memcpy ((uint8_t*)&audioBuffer[0],(uint8_t*)&audioWindow[0], totalBytes);
-      outCount = 0;
-      rawPosition = 0;
+      // once we’ve seen all RAW_SAMPLES, finish up:
+      if (rawPosition >= fetch_raw_samples) {
 
-      // run inference on the 1s window
-      static uint32_t last_inference_call = millis();
-      static const int same_pred_duration = 300;     // 6 predictions in a row give a result 
-      const int inference_freq = 20;                 // [Hz], every 50ms we run inference
-      if (millis() - last_inference_call > 1000/inference_freq ) {
+        // push new audio information to queue
+        static int16_t audioWindow[OUT_SAMPLES];
+        memmove(audioWindow, audioWindow + outCount, (OUT_SAMPLES - outCount) * sizeof(audioWindow[0]));
+        memcpy(audioWindow + (OUT_SAMPLES - outCount),audioBuffer, outCount * sizeof(audioWindow[0]));
+        outCount = 0;
+        rawPosition = 0;
+        recorder.clear();
+
+        // run inference on the 1s window
+        static const int same_pred_duration = 100;     // 3 predictions in a row give a result 
+        static const int same_pred_count_req = same_pred_duration/(1000/inference_freq);
         digitalWrite(LED_RECORDING_PIN, HIGH);
         ei_impulse_result_t result = { 0 };
-        uint16_t pred_no;
-        run_inference(audioBuffer, outCount, result,pred_no);
-        int last_pred_no = -1;
-        int same_pred_count = 0;
+        int pred_no;
+        run_inference(audioWindow, OUT_SAMPLES, result,pred_no);
+        // println("outCount %i pred=%i %s ", outCount, pred_no, result.classification[pred_no].label);
+
+        static int last_pred_no = -1;
+        static int same_pred_count = 0;
 
         // only accept identical predictions in a row for 300 ms;
         if ((pred_no != -1) && (pred_no == last_pred_no)) {
@@ -445,16 +442,19 @@ void loop() {
           last_pred_no = pred_no;
         }
 
-        if (same_pred_count == same_pred_duration/(1000/inference_freq)) {
-          println("Print    %s: %.5f", result.classification[pred_no].label, result.classification[pred_no].value);
+        if (same_pred_count == same_pred_count_req) {
           String label = String(result.classification[pred_no].label);
-          if ((label == String("weiter")) || (label == String("next")))
-            send_page_dn();
-          if ((label == String("zurück")) || (label == String("back")))
-            send_page_up();
+          bool next_page =  ((label == String("weiter")) || (label == String("next")));
+          bool prev_page =  ((label == String("zurück")) || (label == String("back")));
+          if (next_page  || prev_page) {
+            println("Print    %s: %.5f", result.classification[pred_no].label, result.classification[pred_no].value);
+            if ((label == String("weiter")) || (label == String("next")))
+                send_page_dn();
+            if ((label == String("zurück")) || (label == String("back")))
+                send_page_up();
+          }
         }
 
-        last_inference_call = millis();
         digitalWrite(LED_RECORDING_PIN, LOW);
       } // if we run inference
     }
@@ -482,7 +482,7 @@ if (recording && recorder.available()) {
       println("recording of %i 16kHz samples %u bytes sent", outCount, totalBytes);
 
       ei_impulse_result_t result = { 0 };
-      uint16_t pred_no;
+      int pred_no;
       run_inference(audioBuffer, outCount, result, pred_no);
       send_packet(Serial, cmd, (uint8_t*)audioBuffer, totalBytes);
 
