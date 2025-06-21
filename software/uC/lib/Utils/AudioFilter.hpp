@@ -3,12 +3,15 @@
 #define AUDIOFILTER_H
 
 #include <Arduino.h>
+#include <Audio.h>
 
 class Biquad {
 public:
     Biquad();
     void initLowpass(float fs, float f0, float Q = 0.707f);
     void initBandpass(float fs, float f0, float Q = 0.707f);
+    void initHighpass(float fs, float f0, float Q);
+
     float process(float x0);
 
 private:

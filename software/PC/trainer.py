@@ -774,7 +774,7 @@ def main():
                         continue
 
                     # 2) decode & pad/truncate
-                    samples = np.frombuffer(audio_data, dtype=np.int16)
+                    samples = np.frombuffer(audio_data, dtype=np.int16).copy()
                     if samples.size < TARGET_SAMPLES:
                         samples = np.pad(samples, (0, TARGET_SAMPLES - samples.size), 'constant')
                     elif samples.size > TARGET_SAMPLES:
@@ -782,7 +782,7 @@ def main():
 
                     # 3) Play back on PC
                     sd.play(samples, SAMPLE_RATE)
-                    sd.wait()
+                    #sd.wait()
 
                     # 4) Run inference
                     scores    = model_interface.classify(samples)
@@ -804,7 +804,7 @@ def main():
                             print(f"  {i}: {l}")
                         start = time.time()
                         choice = None
-                        while time.time() - start < 3:
+                        while time.time() - start < 3 and not ser.in_waiting:
                             if kbhit.kbhit():
                                 ch = kbhit.getch()
                                 if ch.isdigit():
@@ -812,6 +812,11 @@ def main():
                                     if 0 <= i < len(LABELS):
                                         choice = i
                                 break
+                        if  ser.in_waiting:
+                            print(" no time, packet gets in")
+                        if  time.time() - start >= 3:
+                            print(" Timout, you missed your chance")
+
                         if choice is not None:
                             if choice != pred_idx:
                                 save_wav(audio_data, LABELS[choice])

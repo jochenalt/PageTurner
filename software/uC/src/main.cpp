@@ -304,6 +304,28 @@ static void send_page_dn() {
 }
 
 
+void send_audio_packet(int16_t* audioBuf, size_t samples, ei_impulse_result_t &result) {
+      send_packet(Serial, CMD_AUDIO_RECORDING, (uint8_t*)audioBuf, samples*BYTES_PER_SAMPLE);
+
+      // pack the CMD_SAMPLE_COUNT packet that consist of the sample count, the class count, and the inference  values
+      size_t class_count = EI_CLASSIFIER_LABEL_COUNT;
+      size_t buffer_len = sizeof(samples)+sizeof(class_count) + class_count*sizeof(float);
+      uint8_t buffer[buffer_len];
+      size_t offset = 0;
+      memcpy ((uint8_t*)&buffer[offset], (uint8_t*)&samples, sizeof(samples));
+      offset += sizeof(samples);
+      memcpy ((uint8_t*)&buffer[offset], (uint8_t*)&class_count, sizeof(class_count));
+      offset += sizeof(class_count);
+      
+      for (size_t i = 0;i<class_count;i++) {
+        float score = result.classification[i].value;
+        memcpy ((uint8_t*)&buffer[offset], (uint8_t*)&score, sizeof(score));
+        offset += sizeof(score);
+      }
+      
+      send_packet(Serial, CMD_SAMPLE_COUNT, (uint8_t*)buffer, buffer_len);
+}
+
 void setup() {
   pinMode(LED_LISTENING_PIN, OUTPUT);  
   pinMode(LED_RECORDING_PIN, OUTPUT);
@@ -371,17 +393,6 @@ void setup() {
 void loop() {
   // feed the watch dog
 
-  // everybody loves a blinking LED
-  /*
-  static uint32_t blink_ms = 0;
-  static bool blinkerOn = false;
-  if (now_ms > blink_ms + (blinkerOn?950:50)) {
-    digitalWrite(LED_BUILTIN,blinkerOn?HIGH:LOW);
-    blinkerOn = !blinkerOn;
-    blink_ms = now_ms;
-  }
-    */
-
   // check if the recording button has been pushed
   static bool buttonState=false;                             // state after the action, true = pushed
   bool buttonChange = checkButton(buttonState); // true if turned off or turned on
@@ -389,6 +400,7 @@ void loop() {
   // start audio if evaluation mode is on or we pushed the button
   if ((!recording && buttonChange && buttonState)) { 
       // <1s: normaler 1s-Schnipsel-Aufnahme-Modus
+      delay(20); // prevent to record the click sound of the button
       digitalWrite(LED_RECORDING_PIN, HIGH);
       recording = true;
       outCount   = 0;
@@ -400,41 +412,49 @@ void loop() {
   if (production_mode) {
     
     // read all available samples
-    int bytes_avail = recorder.available();
-    const int inference_freq = 20;                 // [Hz], every 50ms we run inference
-    const int fetch_raw_samples = INPUT_RATE / inference_freq ;
-    if (bytes_avail > 0) {
-      while (recorder.available() && rawPosition < fetch_raw_samples) {
+    const int inference_freq = 50;                 // [Hz], every 50ms we run inference
+    static int loop_counter = 0;
+    static const int same_pred_duration = 50;     // 3 predictions in a row give a result 
+    static const int same_pred_count_req = same_pred_duration/(1000/inference_freq);
+
+    const int fetch_output_samples = OUTPUT_RATE / inference_freq ;
+
+    static int16_t audioWindow[OUT_SAMPLES];    // sliding audio window of 1s used for inference 
+
+    if (recorder.available() > 0) {
+      while (recorder.available() && outCount < fetch_output_samples) {
         int16_t* block = (int16_t*)recorder.readBuffer();
-        size_t toCopy = min((size_t)AUDIO_BLOCK_SAMPLES, fetch_raw_samples - rawPosition);
+        size_t toCopy = AUDIO_BLOCK_SAMPLES;
         processBlock(block, toCopy);
+        rawPosition = 0;            // next time start using the input buffer from the beginning 
         recorder.freeBuffer();
       }
 
       // once we’ve seen all RAW_SAMPLES, finish up:
-      if (rawPosition >= fetch_raw_samples) {
+      if (outCount >= fetch_output_samples) {
 
         // push new audio information to queue
-        static int16_t audioWindow[OUT_SAMPLES];
-        memmove(audioWindow, audioWindow + outCount, (OUT_SAMPLES - outCount) * sizeof(audioWindow[0]));
-        memcpy(audioWindow + (OUT_SAMPLES - outCount),audioBuffer, outCount * sizeof(audioWindow[0]));
-        outCount = 0;
-        rawPosition = 0;
-        recorder.clear();
+        memmove(audioWindow, audioWindow + fetch_output_samples, (OUT_SAMPLES - fetch_output_samples) * sizeof(audioWindow[0]));
+        memcpy(audioWindow + (OUT_SAMPLES - fetch_output_samples),audioBuffer, fetch_output_samples * sizeof(audioWindow[0]));
 
         // run inference on the 1s window
-        static const int same_pred_duration = 100;     // 3 predictions in a row give a result 
-        static const int same_pred_count_req = same_pred_duration/(1000/inference_freq);
         digitalWrite(LED_RECORDING_PIN, HIGH);
         ei_impulse_result_t result = { 0 };
         int pred_no;
         run_inference(audioWindow, OUT_SAMPLES, result,pred_no);
-        // println("outCount %i pred=%i %s ", outCount, pred_no, result.classification[pred_no].label);
+        
+        // once a second, send the packet to the PC
+        loop_counter++;
+        if ((loop_counter % inference_freq) == 0) {
+            send_audio_packet(audioWindow, OUT_SAMPLES, result);
+        }
+
+        // println("outCount=%i rawPosition=%i pred=%i %s ", outCount, rawPosition, pred_no, result.classification[pred_no].label);
 
         static int last_pred_no = -1;
         static int same_pred_count = 0;
 
-        // only accept identical predictions in a row for 300 ms;
+        // only accept identical predictions in a row
         if ((pred_no != -1) && (pred_no == last_pred_no)) {
           same_pred_count++;
         } else {
@@ -446,16 +466,23 @@ void loop() {
           String label = String(result.classification[pred_no].label);
           bool next_page =  ((label == String("weiter")) || (label == String("next")));
           bool prev_page =  ((label == String("zurück")) || (label == String("back")));
+          static int32_t last_anouncement = millis();
+          int32_t now = millis();
           if (next_page  || prev_page) {
             println("Print    %s: %.5f", result.classification[pred_no].label, result.classification[pred_no].value);
-            if ((label == String("weiter")) || (label == String("next")))
+            if (next_page)
                 send_page_dn();
-            if ((label == String("zurück")) || (label == String("back")))
+            if (next_page)
                 send_page_up();
+            last_anouncement = now;
           }
         }
 
         digitalWrite(LED_RECORDING_PIN, LOW);
+
+        outCount -= fetch_output_samples; // so many examples of the outgoing buffer have been consumed by inference (it might be more in)
+        recorder.clear();
+
       } // if we run inference
     }
   }
@@ -463,7 +490,8 @@ void loop() {
 
 //  While recording, fill rawBuffer FULL 88 200 samples:
 if (recording && recorder.available()) {
-    while (recorder.available() && rawPosition < RAW_SAMPLES) {
+
+  while (recorder.available() && rawPosition < RAW_SAMPLES) {
       int16_t* block = (int16_t*)recorder.readBuffer();
       size_t toCopy = min((size_t)AUDIO_BLOCK_SAMPLES, RAW_SAMPLES - rawPosition);
       processBlock(block, toCopy);
@@ -478,31 +506,15 @@ if (recording && recorder.available()) {
       // send outCount samples at 16 kHz:
       digitalWrite(LED_COMMS_PIN, HIGH);
       size_t totalBytes = outCount * BYTES_PER_SAMPLE;
-      int cmd = CMD_AUDIO_RECORDING;
       println("recording of %i 16kHz samples %u bytes sent", outCount, totalBytes);
 
       ei_impulse_result_t result = { 0 };
       int pred_no;
       run_inference(audioBuffer, outCount, result, pred_no);
-      send_packet(Serial, cmd, (uint8_t*)audioBuffer, totalBytes);
 
-      // pack the CMD_SAMPLE_COUNT packet that consist of the sample count, the class count, and the inference  values
-      size_t class_count = EI_CLASSIFIER_LABEL_COUNT;
-      size_t buffer_len = sizeof(outCount)+sizeof(class_count) + class_count*sizeof(float);
-      uint8_t buffer[buffer_len];
-      size_t offset = 0;
-      memcpy ((uint8_t*)&buffer[offset], (uint8_t*)&outCount, sizeof(outCount));
-      offset += sizeof(outCount);
-      memcpy ((uint8_t*)&buffer[offset], (uint8_t*)&class_count, sizeof(class_count));
-      offset += sizeof(class_count);
-      
-      for (size_t i = 0;i<class_count;i++) {
-        float score = result.classification[i].value;
-        memcpy ((uint8_t*)&buffer[offset], (uint8_t*)&score, sizeof(score));
-        offset += sizeof(score);
-      }
-      
-      send_packet(Serial, CMD_SAMPLE_COUNT, (uint8_t*)buffer, buffer_len);
+      // send to PCs python process
+      send_audio_packet(audioBuffer, outCount, result);
+     
       Serial.flush();
       digitalWrite(LED_COMMS_PIN, LOW);
     }
