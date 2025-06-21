@@ -98,16 +98,37 @@ def create_optimised_dataset_dirs(base=OPTIMISED_DATASET_DIR):
         os.makedirs(path, exist_ok=True)
 
 # === Save WAV File ===
-def save_wav(samples, label):
+def save_wav(samples_bytes, label):
+    """
+    Write out `samples_bytes` (raw 16-bit PCM little-endian) to
+    DATASET_DIR/label/label{N}.wav, where N is one more than the
+    highest existing index.
+    """
     folder = os.path.join(DATASET_DIR, label)
-    files = os.listdir(folder)
-    number = len([f for f in files if f.endswith(".wav")])
-    path = os.path.join(folder, f"{label}{number+1}.wav")
+    os.makedirs(folder, exist_ok=True)
+
+    # find the highest existing index
+    existing = [f for f in os.listdir(folder) if f.lower().endswith(".wav")]
+    pattern = re.compile(rf"^{re.escape(label)}(\d+)\.wav$")
+    max_idx = 0
+    for fn in existing:
+        m = pattern.match(fn)
+        if m:
+            idx = int(m.group(1))
+            if idx > max_idx:
+                max_idx = idx
+
+    new_idx = max_idx + 1
+    filename = f"{label}{new_idx}.wav"
+    path = os.path.join(folder, filename)
+
+    # now actually write the file
     with wave.open(path, 'wb') as wf:
         wf.setnchannels(1)
         wf.setsampwidth(2)
         wf.setframerate(SAMPLE_RATE)
-        wf.writeframes(samples)
+        wf.writeframes(samples_bytes)
+
     print(f"✅ Saved {path}")
 
 # === Packet Parsing ===
@@ -738,41 +759,66 @@ def main():
                         score = struct.unpack('<f', payload[offset:offset+4])[0]
                         teensy_scores.append(score)
                         offset += 4
-                    pred_idx  = int(np.argmax(teensy_scores))
-                    pred_label= LABELS[pred_idx]
+                    pred_teensy_idx  = int(np.argmax(teensy_scores))
+                    pred_teensy_label= LABELS[pred_teensy_idx]
 
-                    print(f"Teensy scores: {', '.join(f'{label}={score:.5f}' for label, score in zip(LABELS, teensy_scores))} --> {pred_label}")
+                    print(f"Teensy scores: {', '.join(f'{label}={score:.5f}' for label, score in zip(LABELS, teensy_scores))} --> {pred_teensy_label}")
 
                     
                     expected_bytes = total_samples * BYTES_PER_SAMPLE
                     print(f"📦 Sample count: {total_samples} → {expected_bytes} bytes")
-                    if len(audio_data) == expected_bytes:
-                        if label is not None:
-                            save_wav(audio_data, label)
-                        else:
 
-                            # 1) Turn bytes → int16 samples
-                            samples = np.frombuffer(audio_data, dtype=np.int16)
-
-                            # 2) Pad or truncate to exactly TARGET_SAMPLES
-                            if samples.size < TARGET_SAMPLES:
-                                pad_amt = TARGET_SAMPLES - samples.size
-                                samples = np.pad(samples, (0, pad_amt), mode='constant')
-                            elif samples.size > TARGET_SAMPLES:
-                                samples = samples[:TARGET_SAMPLES]
-
-                            # 3) Play back on PC
-                            sd.play(samples, SAMPLE_RATE)
-                            sd.wait()
-
-                            # 4) Run inference
-                            scores    = model_interface.classify(samples)
-                            pred_idx  = int(np.argmax(scores))
-                            pred_label= LABELS[pred_idx]
-                            print(f"C++ scores: {', '.join(f'{label}={score:.5f}' for label, score in zip(LABELS, scores))} --> : {pred_label}")
-
-                    else:
+                    if len(audio_data) != expected_bytes:
                         print(f"❌ Incomplete data: got {len(audio_data)}, expected {expected_bytes}")
+                        audio_data.clear()
+                        continue
+
+                    # 2) decode & pad/truncate
+                    samples = np.frombuffer(audio_data, dtype=np.int16)
+                    if samples.size < TARGET_SAMPLES:
+                        samples = np.pad(samples, (0, TARGET_SAMPLES - samples.size), 'constant')
+                    elif samples.size > TARGET_SAMPLES:
+                        samples = samples[:TARGET_SAMPLES]
+
+                    # 3) Play back on PC
+                    sd.play(samples, SAMPLE_RATE)
+                    sd.wait()
+
+                    # 4) Run inference
+                    scores    = model_interface.classify(samples)
+                    pred_idx  = int(np.argmax(scores))
+                    pred_label= LABELS[pred_idx]
+                    print(f"C++ scores: {', '.join(f'{label}={score:.5f}' for label, score in zip(LABELS, scores))} --> : {pred_label}")
+ 
+                    # 5a) if the user pre-selected a ground-truth label, only save on mismatch
+                    if label is not None:
+                        if pred_teensy_label != label:
+                            save_wav(audio_data, label)
+                            print(f"✅ MISMATCH! Saved under ground-truth '{label}'")
+                        else:
+                            print("✅ MATCH: skipping save.")
+                    # 5b) otherwise offer optional annotation
+                    else:
+                        print("Press 0–{n} to annotate & save, or wait 3 s to skip.".format(n=len(LABELS)-1))
+                        for i,l in enumerate(LABELS):
+                            print(f"  {i}: {l}")
+                        start = time.time()
+                        choice = None
+                        while time.time() - start < 3:
+                            if kbhit.kbhit():
+                                ch = kbhit.getch()
+                                if ch.isdigit():
+                                    i = int(ch)
+                                    if 0 <= i < len(LABELS):
+                                        choice = i
+                                break
+                        if choice is not None:
+                            if choice != pred_idx:
+                                save_wav(audio_data, LABELS[choice])
+                                print(f"✅ Saved under '{LABELS[choice]}'")
+                            else:
+                                print("ℹ️ Choice matches inference, skipping save.")
+
                     audio_data.clear()  # prepare for next
 
                 elif cmd == CMD_AUDIO_RECORDING:
