@@ -19,6 +19,7 @@
 #include <SD.h>                                             // The SD card contais the model 
 
 #include <usb_keyboard.h>  
+#include <Metronome.hpp>  
 
 
 bool commandPending = false;                                // true if command processor saw a command coming and is waiting for more input
@@ -26,7 +27,6 @@ String command;                                             // current command c
 uint32_t commandLastChar_us = 0;                            // time when the last character came in (to reset command if no further input comes in) 
 
 // Audio signal routing
-AudioAnalyzePeak     peak;                                  // Peak detector, just for show
 AudioInputI2S        i2s_input;                             // Audio from MAX9814 via Audio Shield LINE IN
 AudioOutputI2S       audioOutput;                           // To headphone output
 AudioRecordQueue     recorder;                              // record 2s snippets
@@ -35,16 +35,21 @@ AudioRecordQueue     recorder;                              // record 2s snippet
 AudioFilterBiquad       lowPass;     
 AudioFilterBiquad       highPass;      
 
-AudioFilterFIR          bandpassFIR;
 AudioConnection         patchCord1(i2s_input, 0, lowPass, 0);
 AudioConnection         patchCord2(lowPass, 0, highPass, 0);
-AudioConnection         patchCord5(highPass, 0, audioOutput, 0); // Left channel
-AudioConnection         patchCord6(highPass, 0, audioOutput, 1); // Right channel (duplicated mono signal)
+// AudioConnection         patchCord5(highPass, 0, audioOutput, 0); // Left channel
+// AudioConnection         patchCord6(highPass, 0, audioOutput, 1); // Right channel (duplicated mono signal)
 
-AudioConnection         patchCord7(highPass, 0, peak, 0);       // Left → Peak detector
 AudioConnection         patchCord8(highPass, 0, recorder, 0);   // record the left line in channel
 
 AudioControlSGTL5000 audioShield;
+
+
+AudioPlayMemory        clickPlayer;
+AudioConnection        patchCordMet1(clickPlayer, 0, audioOutput, 0);
+AudioConnection        patchCordMet2(clickPlayer, 0, audioOutput, 1);
+
+Metronome metronome;
 
 static int16_t audioBuffer[OUT_SAMPLES];  // full 16 kHz output
 static const float ratio = INPUT_RATE / (float)OUTPUT_RATE; // ≈2.75625
@@ -356,7 +361,7 @@ void setup() {
   Serial.begin(115200);
 
   // Enable the audio shield+
-  AudioMemory(80);                                      // Allocate audio processing memory
+  AudioMemory(280);                                      // Allocate audio processing memory
   
   // initialise speech bandpass filter (300Hz - 3400 Hz)
   // Butterworth value Q:  “peakedness” or damping of the filter’s transition band.
@@ -370,9 +375,9 @@ void setup() {
   audioShield.unmuteHeadphone();
   audioShield.adcHighPassFilterEnable();
   audioShield.inputSelect(AUDIO_INPUT_LINEIN);          // Use line-in (for MAX9814)
-  audioShield.volume(0.3);                              // Headphone volume 0.0 - 1.0
+  audioShield.volume(0.8);                              // Headphone volume 0.0 - 1.0
   audioShield.lineInLevel(config.model.gainLevel);      // Line-in gain (0-15)
-  audioShield.dacVolume(1.0);
+  audioShield.dacVolume(0.8);
 
   // enable filters for real time audio processing pipeline
   initFilters();
@@ -381,6 +386,11 @@ void setup() {
   recorder.clear();
   recorder.begin();
 
+  // initialise metronome
+  metronome.init();
+  metronome.setTempo(120); 
+  metronome.turn(false);
+
   println("Son of Jochen V%i - h for help", version);
 };
 
@@ -388,6 +398,7 @@ static int16_t audio_in_buffer[RAW_SAMPLES] = {0};
 
 void loop() {
   // feed the watch dog
+  metronome.update();         // Call as often as possible
 
   // check if the recording button has been pushed
   static bool buttonState=false;                             // state after the action, true = pushed

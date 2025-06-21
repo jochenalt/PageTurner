@@ -15,6 +15,9 @@ const uint16_t version = VERSION;
 // Button starting the recording
 #define REC_BUTTON_PIN     5 
 
+// Button starting the recording
+#define METRONOME_LED_PIN 9 
+
 #define LOGSerial Serial1
 #define LOGSerial_RX_PIN 0
 #define LOGSerial_TX_PIN 1
