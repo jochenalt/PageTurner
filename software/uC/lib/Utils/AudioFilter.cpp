@@ -106,33 +106,25 @@ void processAudioBuffer(const int16_t* inputBuf, size_t inLen, int16_t outBuf[],
     outLen = size_t(ratio * inLen  + 0.5f);
     outLen = min(outLen, (size_t)OUT_SAMPLES);
 
-    // 1) Lowpass @ 44.1 kHz
-    static float tmp44[AUDIO_BLOCK_SAMPLES];
-    for (size_t i = 0; i < inLen; i++) {
-        tmp44[i] = lpFilterIn.process(inputBuf[i] / 32768.0f);
-    }
-
     // 2) Resample → 16 kHz with 3-tap smoothing
-    static float tmp16[AUDIO_BLOCK_SAMPLES];
     for (size_t j = 0; j < outLen; j++) {
+
         float pos = j / ratio;
         int   i0  = int(floor(pos));
 
         // 3-tap average instead of linear interp
         float sum = 0, cnt = 0;
-        if (i0 > 0)             { sum += tmp44[i0 - 1]; cnt += 1; }
-        if (i0 < int(inLen))    { sum += tmp44[i0];     cnt += 1; }
-        if (i0 + 1 < int(inLen)){ sum += tmp44[i0 + 1]; cnt += 1; }
-        tmp16[j] = sum / cnt;
-    }
+        if (i0 > 0)             { sum += inputBuf[i0 - 1]/32768.0f; cnt += 1; }
+        if (i0 < int(inLen))    { sum += inputBuf[i0]/32768.0f;     cnt += 1; }
+        if (i0 + 1 < int(inLen)){ sum += inputBuf[i0 + 1]/32768.0f; cnt += 1; }
+        float downsampled =  sum / cnt;
 
-    // 3) Bandpass 300-3400Hz @ 16 kHz und Rückumwandlung in int16
-    for (size_t j = 0; j < outLen; j++) {
-        float y = lowPassFilterOut.process(highPassFilterOut.process(tmp16[j]));
+            // 3) Bandpass 300-3400Hz @ 16 kHz und Rückumwandlung in int16
+        float y = lowPassFilterOut.process(highPassFilterOut.process(downsampled));
         float scaled = y * 32767.0f;
         if (scaled >  32767.0f) scaled =  32767.0f;
         if (scaled < -32767.0f) scaled = -32767.0f;
         outBuf[j] = int16_t(scaled);
-
     }
+
 }

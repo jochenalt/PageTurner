@@ -38,7 +38,7 @@ const uint16_t version = VERSION;
 
 // parameter for recording
 #define RECORD_SECONDS 1
-#define INPUT_RATE        AUDIO_SAMPLE_RATE
+#define INPUT_RATE        44100
 #define OUTPUT_RATE       16000
 #define BYTES_PER_SAMPLE 2
 #define RAW_SAMPLES      (RECORD_SECONDS * INPUT_RATE)   // 44100

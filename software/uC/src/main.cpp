@@ -326,6 +326,22 @@ void send_audio_packet(int16_t* audioBuf, size_t samples, ei_impulse_result_t &r
       send_packet(Serial, CMD_SAMPLE_COUNT, (uint8_t*)buffer, buffer_len);
 }
 
+void drainAudioInputBuffer(int16_t audio_in_buffer[], size_t &added_samples) {
+  added_samples = 0;
+  while (recorder.available()) {
+        int16_t* block = recorder.readBuffer();
+
+        // push new audio information to queue
+        uint16_t samples = AUDIO_BLOCK_SAMPLES;
+        memmove(audio_in_buffer, audio_in_buffer + samples, (RAW_SAMPLES - samples) * sizeof(audio_in_buffer[0]));
+        memcpy(audio_in_buffer + (RAW_SAMPLES - samples),block, samples * sizeof(audio_in_buffer[0]));
+
+        recorder.freeBuffer();
+        added_samples += samples;
+  }
+}
+
+
 void setup() {
   pinMode(LED_LISTENING_PIN, OUTPUT);  
   pinMode(LED_RECORDING_PIN, OUTPUT);
@@ -390,6 +406,8 @@ void setup() {
   println("Son of Jochen V%i - h for help", version);
 };
 
+static int16_t audio_in_buffer[RAW_SAMPLES] = {0};
+
 void loop() {
   // feed the watch dog
 
@@ -412,41 +430,34 @@ void loop() {
   if (production_mode) {
     
     // read all available samples
-    const int inference_freq = 50;                 // [Hz], every 50ms we run inference
+    const int inference_freq = 5;                 // [Hz], every 50ms we run inference
     static int loop_counter = 0;
     static const int same_pred_duration = 50;     // 3 predictions in a row give a result 
     static const int same_pred_count_req = same_pred_duration/(1000/inference_freq);
 
-    const int fetch_output_samples = OUTPUT_RATE / inference_freq ;
-
-    static int16_t audioWindow[OUT_SAMPLES];    // sliding audio window of 1s used for inference 
-
     if (recorder.available() > 0) {
-      while (recorder.available() && outCount < fetch_output_samples) {
-        int16_t* block = (int16_t*)recorder.readBuffer();
-        size_t toCopy = AUDIO_BLOCK_SAMPLES;
-        processBlock(block, toCopy);
-        rawPosition = 0;            // next time start using the input buffer from the beginning 
-        recorder.freeBuffer();
-      }
+      size_t added;
+      drainAudioInputBuffer(audio_in_buffer, added);
+      println("filled in buffer");
+      size_t filteredbytes;
+      processAudioBuffer(audio_in_buffer, RAW_SAMPLES, audioBuffer, filteredbytes);
 
       // once we’ve seen all RAW_SAMPLES, finish up:
-      if (outCount >= fetch_output_samples) {
-
-        // push new audio information to queue
-        memmove(audioWindow, audioWindow + fetch_output_samples, (OUT_SAMPLES - fetch_output_samples) * sizeof(audioWindow[0]));
-        memcpy(audioWindow + (OUT_SAMPLES - fetch_output_samples),audioBuffer, fetch_output_samples * sizeof(audioWindow[0]));
+      uint32_t now = millis();
+      static uint32_t last_inference_time = millis();
+      if (now - last_inference_time >  1000/inference_freq) {
+        last_inference_time = now;
 
         // run inference on the 1s window
         digitalWrite(LED_RECORDING_PIN, HIGH);
         ei_impulse_result_t result = { 0 };
         int pred_no;
-        run_inference(audioWindow, OUT_SAMPLES, result,pred_no);
+        run_inference(audioBuffer, OUT_SAMPLES, result,pred_no);
         
         // once a second, send the packet to the PC
         loop_counter++;
         if ((loop_counter % inference_freq) == 0) {
-            send_audio_packet(audioWindow, OUT_SAMPLES, result);
+            send_audio_packet(audioBuffer, OUT_SAMPLES, result);
         }
 
         // println("outCount=%i rawPosition=%i pred=%i %s ", outCount, rawPosition, pred_no, result.classification[pred_no].label);
@@ -479,10 +490,6 @@ void loop() {
         }
 
         digitalWrite(LED_RECORDING_PIN, LOW);
-
-        outCount -= fetch_output_samples; // so many examples of the outgoing buffer have been consumed by inference (it might be more in)
-        recorder.clear();
-
       } // if we run inference
     }
   }
@@ -491,29 +498,31 @@ void loop() {
 //  While recording, fill rawBuffer FULL 88 200 samples:
 if (recording && recorder.available()) {
 
-  while (recorder.available() && rawPosition < RAW_SAMPLES) {
-      int16_t* block = (int16_t*)recorder.readBuffer();
-      size_t toCopy = min((size_t)AUDIO_BLOCK_SAMPLES, RAW_SAMPLES - rawPosition);
-      processBlock(block, toCopy);
-      recorder.freeBuffer();
-    }
+      static size_t accumulated = 0;
+      size_t added;
+      drainAudioInputBuffer(audio_in_buffer, added);
+      accumulated += added;
+      size_t filteredbytes;
 
     // once we’ve seen all RAW_SAMPLES, finish up:
-    if (rawPosition >= RAW_SAMPLES) {
+    if (accumulated >= RAW_SAMPLES) {
+      accumulated = 0;
+      processAudioBuffer(audio_in_buffer, RAW_SAMPLES, audioBuffer, filteredbytes);
+
       recording = false;
       digitalWrite(LED_RECORDING_PIN, LOW);
 
       // send outCount samples at 16 kHz:
       digitalWrite(LED_COMMS_PIN, HIGH);
-      size_t totalBytes = outCount * BYTES_PER_SAMPLE;
-      println("recording of %i 16kHz samples %u bytes sent", outCount, totalBytes);
+      size_t totalBytes = filteredbytes * BYTES_PER_SAMPLE;
+      println("recording of %i 16kHz samples %u bytes sent", filteredbytes, totalBytes);
 
       ei_impulse_result_t result = { 0 };
       int pred_no;
-      run_inference(audioBuffer, outCount, result, pred_no);
+      run_inference(audioBuffer, filteredbytes, result, pred_no);
 
       // send to PCs python process
-      send_audio_packet(audioBuffer, outCount, result);
+      send_audio_packet(audioBuffer, filteredbytes, result);
      
       Serial.flush();
       digitalWrite(LED_COMMS_PIN, LOW);
