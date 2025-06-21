@@ -49,10 +49,7 @@ AudioControlSGTL5000 audioShield;
 static int16_t audioBuffer[OUT_SAMPLES];  // full 16 kHz output
 static const float ratio = INPUT_RATE / (float)OUTPUT_RATE; // ≈2.75625
 bool   recording = false;                  // true, if recording is happening
-
-// counters
-size_t outCount = 0;
-static size_t  rawPosition = 0;           // total raw samples consumed so far
+bool streaming = false;
 
 bool production_mode = false;
 
@@ -248,8 +245,6 @@ void executeManualCommand() {
 					production_mode = !production_mode;
           if (production_mode) {
             LOGSerial.println("production mode on");
-            outCount   = 0;
-            rawPosition = 0;
             recorder.clear();
           } else 
           {
@@ -272,24 +267,6 @@ void executeManualCommand() {
 		} // if (Serial.available())
 }
 
-// Call this once per incoming block from audio board:
-// Takes a mono 16-Bit Audio-Buffer samples at 44.1 kHz and creates a 
-// newly allocated int16_t-buffer sampled at 16kHz. In between it does:
-//    - Lowpass at  44.1 kHz
-//    - Lineares Resampling auf 16 kHz 
-//    - Bandpass  IIR-Bandpass (300–3400 Hz) bei 16 kHz and conversion in int16
-// und liefert einen
-// neu allokierten int16_t-Buffer bei 16 kHz zurück (muss vom Aufrufer gelöscht werden)
-void processBlock(const int16_t* block, size_t blockLen) {
-  size_t produced;
-  static  int16_t filteredBuf[AUDIO_BLOCK_SAMPLES];
-  processAudioBuffer(block, blockLen, filteredBuf, produced);
-  // Kopiere die produced Samples in Dein globales audioBuffer[]
-  size_t copyCnt = min(produced, OUT_SAMPLES - outCount);
-  memcpy(audioBuffer + outCount, filteredBuf, copyCnt * sizeof(int16_t));
-  outCount += copyCnt;
-  rawPosition += blockLen;
-}
 
 // send a single Page Up
 static void send_page_up() {
@@ -417,14 +394,27 @@ void loop() {
 
   // start audio if evaluation mode is on or we pushed the button
   if ((!recording && buttonChange && buttonState)) { 
-      // <1s: normaler 1s-Schnipsel-Aufnahme-Modus
-      delay(20); // prevent to record the click sound of the button
       digitalWrite(LED_RECORDING_PIN, HIGH);
-      recording = true;
-      outCount   = 0;
-      rawPosition = 0;
-      recorder.clear();
-      LOGSerial.println("start recording");
+      uint32_t now = millis();
+
+      while ((millis() - now < 1000) && buttonState) {
+        delay(10);
+        buttonChange = checkButton(buttonState); // true if turned off or turned on
+      }
+      if (buttonState) {
+        // if button is still pressed, set streaming mode
+        streaming = true;
+        recording = true;
+        recorder.clear();
+        LOGSerial.println("start streaming");
+      } else {
+        // start recording mode of 1s
+        digitalWrite(LED_RECORDING_PIN, HIGH);
+        recording = true;
+        streaming = false;
+        recorder.clear();
+        LOGSerial.println("start recording");
+      }
   }
 
   if (production_mode) {
@@ -460,7 +450,7 @@ void loop() {
             send_audio_packet(audioBuffer, OUT_SAMPLES, result);
         }
 
-        // println("outCount=%i rawPosition=%i pred=%i %s ", outCount, rawPosition, pred_no, result.classification[pred_no].label);
+        // println("outCount=%i  pred=%i %s ", outCount, pred_no, result.classification[pred_no].label);
 
         static int last_pred_no = -1;
         static int same_pred_count = 0;
@@ -480,12 +470,15 @@ void loop() {
           static int32_t last_anouncement = millis();
           int32_t now = millis();
           if (next_page  || prev_page) {
-            println("Print    %s: %.5f", result.classification[pred_no].label, result.classification[pred_no].value);
-            if (next_page)
-                send_page_dn();
-            if (next_page)
-                send_page_up();
-            last_anouncement = now;
+            // debounce announcement
+            if (now - last_anouncement > 100) {
+              println("Print    %s: %.5f", result.classification[pred_no].label, result.classification[pred_no].value);
+              if (next_page)
+                  send_page_dn();
+              if (next_page)
+                  send_page_up();
+              last_anouncement = now;
+            }
           }
         }
 
@@ -498,34 +491,41 @@ void loop() {
 //  While recording, fill rawBuffer FULL 88 200 samples:
 if (recording && recorder.available()) {
 
-      static size_t accumulated = 0;
-      size_t added;
-      drainAudioInputBuffer(audio_in_buffer, added);
-      accumulated += added;
+      static size_t filter_samples_in_buffer = 0;
+      size_t added_filtered_samples;
+      drainAudioInputBuffer(audio_in_buffer, added_filtered_samples);
+      filter_samples_in_buffer += added_filtered_samples;
       size_t filteredbytes;
 
-    // once we’ve seen all RAW_SAMPLES, finish up:
-    if (accumulated >= RAW_SAMPLES) {
-      accumulated = 0;
-      processAudioBuffer(audio_in_buffer, RAW_SAMPLES, audioBuffer, filteredbytes);
+      if (filter_samples_in_buffer >= RAW_SAMPLES) {
+            // 1) produce and send a 1 s snippet
+            processAudioBuffer(audio_in_buffer, RAW_SAMPLES, audioBuffer, filteredbytes);
+            
+            size_t totalBytes = filteredbytes * BYTES_PER_SAMPLE;
+            println("recording of %u samples (%u bytes) sent", filteredbytes, totalBytes);
 
-      recording = false;
-      digitalWrite(LED_RECORDING_PIN, LOW);
+            ei_impulse_result_t result = { 0 };
+            int pred_no;
+            run_inference(audioBuffer, filteredbytes, result, pred_no);
+            send_audio_packet(audioBuffer, filteredbytes, result);
+            Serial.flush();
 
-      // send outCount samples at 16 kHz:
-      digitalWrite(LED_COMMS_PIN, HIGH);
-      size_t totalBytes = filteredbytes * BYTES_PER_SAMPLE;
-      println("recording of %i 16kHz samples %u bytes sent", filteredbytes, totalBytes);
+            // 2) reset counter for the *next* second
+            filter_samples_in_buffer = 0;
 
-      ei_impulse_result_t result = { 0 };
-      int pred_no;
-      run_inference(audioBuffer, filteredbytes, result, pred_no);
-
-      // send to PCs python process
-      send_audio_packet(audioBuffer, filteredbytes, result);
-     
-      Serial.flush();
-      digitalWrite(LED_COMMS_PIN, LOW);
+            // 3) check button state: if *still* held, keep recording,
+            //    otherwise stop and turn LED off.
+            if (streaming && !digitalRead(REC_BUTTON_PIN)) {
+              // button is LOW → still pressed
+              // drop any leftover in the hardware queue and start fresh
+              recorder.clear();
+              println("continuing recording next second…");
+            } else {
+              // button released → clean up
+              recording = false;
+              digitalWrite(LED_RECORDING_PIN, LOW);
+              println("recording finished (button released).");
+            }
     }
 }
 
