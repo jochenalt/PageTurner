@@ -300,7 +300,8 @@ void send_audio_packet(int16_t* audioBuf, size_t samples, ei_impulse_result_t &r
         offset += sizeof(score);
       }
       
-      send_packet(Serial, CMD_SAMPLE_COUNT, (uint8_t*)buffer, buffer_len);
+      int cmd = streaming ? CMD_AUDIO_STREAM : CMD_SAMPLE_COUNT;
+      send_packet(Serial, cmd, (uint8_t*)buffer, buffer_len);
 }
 
 void drainAudioInputBuffer(int16_t audio_in_buffer[], size_t &added_samples) {

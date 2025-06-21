@@ -375,7 +375,7 @@ def augment_balance(
     cmd_labels=CMD_LABELS,
     bg_label='background',
     silence_label='silence',
-    target_cmd=60,
+    target_cmd=100,
     unknown_multiplier=4,
     bg_multiplier=2,
     target_silence=60,
@@ -683,6 +683,12 @@ def main():
 
         label = None
 
+        streaming = False
+        stream_buffer = bytearray()
+        stream_label = None
+        last_stream_time = 0.0
+        STREAM_TIMEOUT = 1.5  # seconds to wait for the “next” snippet
+        stream_buffer.clear()
         while True:
             # check keyboard without blocking
             if kbhit.kbhit():
@@ -693,7 +699,7 @@ def main():
                 if key == 'o':
                     print("🚀 Starting dataset optimisation...")
                     optimise_dataset()
-                    augment_balance()
+                    #augment_balance()
                     count_files_per_label();
                     validate_dataset()
                     print("✅ Optimisation complete.")
@@ -735,6 +741,19 @@ def main():
                 if label in CMD_LABELS:
                     mic_mode = False
 
+            if streaming and (time.time() - last_stream_time) > STREAM_TIMEOUT:
+                print("ℹ️  Stream ended due to timeout")
+                # write out the entire stream
+                if stream_label is not None:
+                    save_wav(stream_buffer, stream_label)
+                    print(f"✅ Saved full {len(stream_buffer)//2}-sample stream under '{stream_label}'")
+                else:
+                    print("ℹ️  Stream ended, no label selected → dropping")
+                # reset streaming state
+                streaming = False
+                stream_buffer.clear()
+                stream_label = None
+
 
             # look for packets
             if ser and ser.in_waiting:
@@ -746,7 +765,35 @@ def main():
 
                 if cmd == CMD_AUDIO_STREAM and interpreter is not None:
                         print(f"no model present");
+
+                if cmd == CMD_AUDIO_STREAM:
+                    if not streaming:
+                        print("ℹ️  start receive stream")
+                    print("ℹ️  received 1s of stream data")
+                    print(f"ℹ️   adding  {len(audio_data)} samples to stream of {len(stream_buffer)} bytes")
+                    stream_buffer.extend(audio_data)
+                    audio_data.clear()
+
+
+                    last_stream_time = time.time()
+                    streaming = True
+                    # remember current label (could be global `label` from keyboard)
+                    stream_label = label
+                    continue
                 elif cmd == CMD_SAMPLE_COUNT:
+                    # you can still handle final inference here if you need
+                    # but for pure streaming saves, CMD_SAMPLE_COUNT means “end”
+                    # trigger the same save logic immediately:
+                    if streaming:
+                        if stream_label is not None:
+                            save_wav(audio_data, stream_label)
+                            print(f"✅ Saved full {len(stream_buffer)//2}-sample stream under '{stream_label}'")
+                        else:
+                            print("ℹ️  Stream ended, no label selected → dropping")
+                    streaming = False
+                    stream_buffer.clear()
+                    stream_label = None
+
                     print(f"❌ CMD_SAMPLE_COUNT payload length: {len(payload)}")
     
                     total_samples = struct.unpack('<I', payload[2:6])[0]
@@ -828,15 +875,15 @@ def main():
 
                 elif cmd == CMD_AUDIO_RECORDING:
                     # store audio recording in a buffer. It is only saved if the 
-                    # following CMD_SAMPLE_COUNT gives the right number. Otehrwise this
+                    # following CMD_SAMPLE_COUNT gives the right number. Othrwise this
                     # buffer is overwritten next time
                     chunk_idx = payload[0]
                     chunk_total = payload[1]
                     audio_data.extend(payload[2:])
+
                     #print(f"received  {len(audio_data)} samples")
                 else:
                     print(f"unknown command {cmd}")
-
 
 
     finally:
