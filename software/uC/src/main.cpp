@@ -18,6 +18,9 @@
 #include <SPI.h>                                            // 
 #include <SD.h>                                             // The SD card contais the model 
 
+#include <usb_keyboard.h>  
+
+
 bool commandPending = false;                                // true if command processor saw a command coming and is waiting for more input
 String command;                                             // current command coming in
 uint32_t commandLastChar_us = 0;                            // time when the last character came in (to reset command if no further input comes in) 
@@ -50,6 +53,9 @@ bool   recording = false;                  // true, if recording is happening
 // counters
 size_t outCount = 0;
 static size_t  rawPosition = 0;           // total raw samples consumed so far
+
+bool production_mode = false;
+
 
 void println(const char* format, ...) {
     char s[256];
@@ -91,7 +97,7 @@ void run_inference(int16_t buffer[],  size_t samples, ei_impulse_result_t &resul
     }
 
     // print the predictions
-    println("Predictions (DSP: %d ms, inf: %d ms) (n=%d samples)",
+    print("Inference (DSP: %d ms, classifier: %d ms) (n=%d samples)",
         result.timing.dsp, result.timing.classification, result.timing.anomaly, samples);
     float score = 0;
     pred_no = -1;
@@ -102,7 +108,7 @@ void run_inference(int16_t buffer[],  size_t samples, ei_impulse_result_t &resul
         }
         print(" %s:%.3f", result.classification[ix].label, result.classification[ix].value);
     }
-    println("pred= %s", result.classification[pred_no].label);
+    println(" pred=%s", result.classification[pred_no].label);
 #if EI_CLASSIFIER_HAS_ANOMALY == 1
         ei_printf("    anomaly score: %.3f\n", result.anomaly);
 #endif
@@ -167,8 +173,7 @@ void printHelp() {
   println("   r       - reset");
   println("   +       - increase gain Level");
   println("   -       - decrease gain Level");
-  println("   l       - peak meter on");
-  println("   L       - peak meter off");
+  println("   <space>   production mode");
 };
 
 
@@ -239,6 +244,20 @@ void executeManualCommand() {
 					addCmd(inputChar);
 				break;
       }
+ 			case ' ': {
+				if (command == "") {
+					production_mode = !production_mode;
+          if (production_mode) {
+            LOGSerial.println("production mode on");
+          } else 
+          {
+            LOGSerial.println("production mode off");
+          }
+        }
+				else
+					addCmd(inputChar);
+				break;
+      }
 
       case 10:
 			case 13:
@@ -269,6 +288,19 @@ void processBlock(const int16_t* block, size_t blockLen) {
   outCount += copyCnt;
   rawPosition += blockLen;
 }
+
+// send a single Page Up
+static void send_page_up() {
+  // usb_keyboard_press(KEY_PAGE_UP,0);
+  // usb_keyboard_release_all();
+}
+
+// send a single Page Down
+static void send_page_dn() {
+  // usb_keyboard_press(KEY_PAGE_DOWN,0);
+  // usb_keyboard_release_all();
+}
+
 
 void setup() {
   pinMode(LED_LISTENING_PIN, OUTPUT);  
@@ -327,6 +359,10 @@ void setup() {
   // enable filters for real time audio processing pipeline
   initFilters();
 
+  // initialise audio recorder
+  recorder.clear();
+  recorder.begin();
+
   println("Son of Jochen V%i - h for help", version);
 };
 
@@ -356,11 +392,76 @@ void loop() {
       outCount   = 0;
       rawPosition = 0;
       recorder.clear();
-      recorder.begin();
       LOGSerial.println("start recording");
   }
 
-    // 2) While recording, fill rawBuffer FULL 88 200 samples:
+  if (production_mode) {
+    // read all available samples
+    int bytes_avail = recorder.available();
+    if (bytes_avail > 0) {
+      print("Audio:");
+      while ((bytes_avail>0) && rawPosition < RAW_SAMPLES) {
+        int16_t* block = (int16_t*)recorder.readBuffer();
+        int bytes_left = bytes_avail;
+        while (bytes_left > 0) {
+          // limit to available buffer size (max = RAW_SAMPLES)
+          size_t toCopy = min((size_t)AUDIO_BLOCK_SAMPLES, RAW_SAMPLES - rawPosition);
+          // limit to bytes_left
+          toCopy = min(toCopy, bytes_left);
+
+          processBlock(block, toCopy);
+          bytes_left -= toCopy;
+        }  
+        recorder.freeBuffer();
+        bytes_avail = recorder.available();
+      }
+      println("outCount %i ", outCount);
+
+      // push new audio information to queue
+      static uint16_t audioWindow[OUT_SAMPLES];
+      size_t totalBytes = outCount * BYTES_PER_SAMPLE;
+      memcpy ((uint8_t*)&audioWindow[outCount],(uint8_t*)&audioWindow[0], totalBytes);
+      memcpy ((uint8_t*)&audioBuffer[0],(uint8_t*)&audioWindow[0], totalBytes);
+      outCount = 0;
+      rawPosition = 0;
+
+      // run inference on the 1s window
+      static uint32_t last_inference_call = millis();
+      static const int same_pred_duration = 300;     // 6 predictions in a row give a result 
+      const int inference_freq = 20;                 // [Hz], every 50ms we run inference
+      if (millis() - last_inference_call > 1000/inference_freq ) {
+        digitalWrite(LED_RECORDING_PIN, HIGH);
+        ei_impulse_result_t result = { 0 };
+        uint16_t pred_no;
+        run_inference(audioBuffer, outCount, result,pred_no);
+        int last_pred_no = -1;
+        int same_pred_count = 0;
+
+        // only accept identical predictions in a row for 300 ms;
+        if ((pred_no != -1) && (pred_no == last_pred_no)) {
+          same_pred_count++;
+        } else {
+          same_pred_count = 1;
+          last_pred_no = pred_no;
+        }
+
+        if (same_pred_count == same_pred_duration/(1000/inference_freq)) {
+          println("Print    %s: %.5f", result.classification[pred_no].label, result.classification[pred_no].value);
+          String label = String(result.classification[pred_no].label);
+          if ((label == String("weiter")) || (label == String("next")))
+            send_page_dn();
+          if ((label == String("zurück")) || (label == String("back")))
+            send_page_up();
+        }
+
+        last_inference_call = millis();
+        digitalWrite(LED_RECORDING_PIN, LOW);
+      } // if we run inference
+    }
+  }
+
+
+//  While recording, fill rawBuffer FULL 88 200 samples:
 if (recording && recorder.available()) {
     while (recorder.available() && rawPosition < RAW_SAMPLES) {
       int16_t* block = (int16_t*)recorder.readBuffer();
@@ -372,7 +473,6 @@ if (recording && recorder.available()) {
     // once we’ve seen all RAW_SAMPLES, finish up:
     if (rawPosition >= RAW_SAMPLES) {
       recording = false;
-      recorder.end();
       digitalWrite(LED_RECORDING_PIN, LOW);
 
       // send outCount samples at 16 kHz:

@@ -741,8 +741,7 @@ def main():
                     pred_idx  = int(np.argmax(teensy_scores))
                     pred_label= LABELS[pred_idx]
 
-                    print(f"C++ scores: {', '.join(f'{label}={score:.5f}' for label, score in zip(LABELS, teensy_scores))}")
-                    print(f"      --> : {pred_label}")
+                    print(f"Teensy scores: {', '.join(f'{label}={score:.5f}' for label, score in zip(LABELS, teensy_scores))} --> {pred_label}")
 
                     
                     expected_bytes = total_samples * BYTES_PER_SAMPLE
@@ -770,8 +769,7 @@ def main():
                             scores    = model_interface.classify(samples)
                             pred_idx  = int(np.argmax(scores))
                             pred_label= LABELS[pred_idx]
-                            print(f"C++ scores: {', '.join(f'{label}={score:.5f}' for label, score in zip(LABELS, scores))}")
-                            print(f"      --> : {pred_label}")
+                            print(f"C++ scores: {', '.join(f'{label}={score:.5f}' for label, score in zip(LABELS, scores))} --> : {pred_label}")
 
                     else:
                         print(f"❌ Incomplete data: got {len(audio_data)}, expected {expected_bytes}")
