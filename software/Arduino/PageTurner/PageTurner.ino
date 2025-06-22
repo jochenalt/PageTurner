@@ -16,7 +16,7 @@
 #include "Metronome.h"  
 #include "Watchdog_t4.h"
 
-// #define INC_KEYBOARD
+#define INC_KEYBOARD
 #ifdef INC_KEYBOARD
 #include <Keyboard.h>
 #endif
@@ -103,9 +103,9 @@ void run_inference(int16_t buffer[],  size_t samples, ei_impulse_result_t &resul
           pred_no = ix;
           score = result.classification[ix].value;
         }
-        print(" %s:%.3f", result.classification[ix].label, result.classification[ix].value);
+        // print(" %s:%.3f", result.classification[ix].label, result.classification[ix].value);
     }
-    println(" pred=%s", result.classification[pred_no].label);
+    //println(" pred=%s", result.classification[pred_no].label);
 #if EI_CLASSIFIER_HAS_ANOMALY == 1
         ei_printf("    anomaly score: %.3f\n", result.anomaly);
 #endif
@@ -457,7 +457,7 @@ void loop() {
     // read all available samples
     const int inference_freq = 50;                  // [Hz], every 20ms we run inference (one inference call is approximately 8ms)
     static int loop_counter = 0;
-    static const int same_pred_duration  = 200;     // 4 predictions in a row give a result 
+    static const int same_pred_duration  = 250;     // 5 predictions in a row give a result 
     static const int same_pred_count_req = same_pred_duration/(1000/inference_freq);
 
     if (recorder.available() > 0) {
@@ -506,12 +506,19 @@ void loop() {
           int32_t now = millis();
           if (next_page  || prev_page) {
             // debounce announcement
-            if (now - last_anouncement > 100) {
-              println("Send %s: %.5f", result.classification[pred_no].label, result.classification[pred_no].value);
-              if (next_page)
+            if (now - last_anouncement > 1000) {
+              if (next_page) {
+                  println("Send %s: %.5f", result.classification[pred_no].label, result.classification[pred_no].value);
                   send_keyboard_key(KEY_PAGE_DOWN);
-              if (next_page)
+                  send_audio_packet(audioBuffer, OUT_SAMPLES, result);
+
+              }
+              if (prev_page) {
                   send_keyboard_key(KEY_PAGE_UP);
+                  println("Send %s: %.5f", result.classification[pred_no].label, result.classification[pred_no].value);
+                  send_audio_packet(audioBuffer, OUT_SAMPLES, result);
+
+              }
               last_anouncement = now;
             }
           }

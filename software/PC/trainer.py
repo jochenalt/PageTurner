@@ -699,7 +699,7 @@ def main():
                 if key == 'o':
                     print("🚀 Starting dataset optimisation...")
                     optimise_dataset()
-                    augment_balance()
+                    #augment_balance()
                     count_files_per_label();
                     validate_dataset()
                     print("✅ Optimisation complete.")
