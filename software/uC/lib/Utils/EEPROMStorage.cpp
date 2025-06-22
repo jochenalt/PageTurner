@@ -5,7 +5,7 @@
  */  
 #include <Arduino.h>
 #include <EEPROM.h>
-#include "EEPROMStorage.hpp"
+#include "EEPROMStorage.h"
 
 #define EEPROM_MAX_WRITES 50000UL				// maximum number of writes in EEPROM before switching to next memory block
 

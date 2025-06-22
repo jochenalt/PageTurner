@@ -1,6 +1,6 @@
 
-#include <Metronome.hpp>
-#include <constants.hpp>
+#include "Metronome.h"
+#include "constants.h"
 
 extern AudioPlayMemory        clickPlayer;
 
@@ -17,9 +17,17 @@ void Metronome::setTempo(uint16_t bpm) {
     periodMicros = 60000000UL / bpm;
 }
 
+uint16_t  Metronome::getTempo() {
+    return  60000000UL /periodMicros;
+}
+
 void Metronome::turn(bool onOff) {
     enabled = onOff;
     lastBeatMicros = micros();
+}
+
+bool  Metronome::isOn() {
+    return enabled;
 }
 
 void Metronome::update() {

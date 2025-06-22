@@ -1,5 +1,5 @@
 
-#include <SerialProtocol.hpp>
+#include "SerialProtocol.h"
  
 uint8_t compute_crc8(uint8_t cmd, uint16_t len, const uint8_t* data) {
   uint8_t crc = 0;

@@ -1,7 +1,7 @@
 
 // AudioFilter.cpp
-#include "AudioFilter.hpp"
-#include "constants.hpp" 
+#include "AudioFilter.h"
+#include "constants.h" 
 
 // Statische Instanzen der Filter
 static Biquad lpFilterIn;

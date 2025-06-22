@@ -9,7 +9,11 @@ public:
     Metronome();
     void init();
     void setTempo(uint16_t bpm);        // BPM: beats per minute
+    uint16_t getTempo();        // BPM: beats per minute
+ 
     void turn(bool onOff);              // Enable or disable the metronome
+    bool isOn(); 
+    
     void update();                      // Call often from loop()
 
 private:

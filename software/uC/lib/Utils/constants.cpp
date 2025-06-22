@@ -1,5 +1,3 @@
-#include <constants.hpp>
+#include "constants.h"
 
 
-// listening, recording, or communication
-int workingMode = 0;

@@ -3,8 +3,8 @@
  */ 
 #pragma once
 
-#include <constants.hpp>
-#include <model.hpp>
+#include "constants.h"
+#include "model.h"
 
 const long EEPROM_MAGIC_NUMBER = 1565+VERSION;  // magic number to indicate whether the AVR's EEPROM has been initialized already
 

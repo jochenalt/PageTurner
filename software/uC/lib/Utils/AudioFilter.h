@@ -1,6 +1,4 @@
-// AudioFilter.h
-#ifndef AUDIOFILTER_H
-#define AUDIOFILTER_H
+#pragma once
 
 #include <Arduino.h>
 #include <Audio.h>
@@ -27,4 +25,3 @@ void initFilters();
 // neu allokierten int16_t-Buffer bei 16 kHz zurück 
 void processAudioBuffer(const int16_t* inputBuf, size_t inLen, int16_t outBuf[],size_t& outLen);
 
-#endif // AUDIOFILTER_H
