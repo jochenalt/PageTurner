@@ -529,7 +529,7 @@ void loop() {
         String pred_label;
         float pred_certainty;
 
-        if (is_silence(audioBuffer, OUT_SAMPLES, 5e-6f)) {
+        if (is_silence(audioBuffer, OUT_SAMPLES, 0.0002)) {
             pred_no = silence_label_no;
             pred_label = "silence";
             pred_certainty = 1.0;
@@ -546,8 +546,10 @@ void loop() {
 
         // println("outCount=%i  pred=%i %s ", outCount, pred_no, result.classification[pred_no].label);
 
-        static int last_pred_no = -1;
-        static int same_pred_count = 0;
+        // debounce the announcement, have at least a pause of 
+        static int16_t last_pred_no = -1;
+        static int16_t same_pred_count = 0;
+        const int16_t debounce_anouncement_ms  = 1500; // [ms] 
 
         // only accept identical predictions in a row
         if ((pred_no != -1) && (pred_no == last_pred_no)) {
@@ -558,14 +560,16 @@ void loop() {
         }
 
         if (same_pred_count == same_pred_count_req) {
-          bool next_page =  (pred_no == weiter_label_no) || (pred_no == next_label_no);
-          bool prev_page =  (pred_no == zurueck_label_no) || (pred_no == next_label_no);
+          // bool next_page =  (pred_no == weiter_label_no) || (pred_no == next_label_no);
+          // bool prev_page =  (pred_no == zurueck_label_no) || (pred_no == back_label_no);
+          bool next_page =  (pred_no == weiter_label_no);
+          bool prev_page =  (pred_no == zurueck_label_no);
 
           static int32_t last_anouncement = millis();
           int32_t now = millis();
           if (next_page  || prev_page) {
             // debounce announcement, at least 1000ms between two different actions
-            if (now - last_anouncement > 1000) {
+            if (now - last_anouncement > debounce_anouncement_ms) {
               println("Send %s: %.5f", result.classification[pred_no].label, pred_certainty);
               if (next_page)
                   send_keyboard_key(KEY_PAGE_DOWN);
