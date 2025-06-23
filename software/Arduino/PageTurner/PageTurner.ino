@@ -16,7 +16,9 @@
 #include "Metronome.h"  
 #include "Watchdog_t4.h"
 
+#ifndef PLATFORMIO
 #define INC_KEYBOARD
+#endif
 #ifdef INC_KEYBOARD
 #include <Keyboard.h>
 #endif
@@ -81,6 +83,20 @@ static int get_data(size_t offset, size_t length, float *out_ptr)
     return 0;
 }
 
+float  compute_rms(const int16_t* samples, size_t len) {
+    uint64_t acc = 0;
+    for (size_t i = 0; i < len; ++i) {
+        float y = samples[i] / 32768.0f;   // Normierung auf [–1..1]
+        acc += uint64_t(y * y * 1e9f);     // skalieren, damit int-acc passt
+    }
+    float mean = float(acc) / float(len) / 1e9f;
+    return mean;
+}
+
+bool is_silence(const int16_t* samples, size_t len, float thresh = 0.0002) {
+    return compute_rms(samples, len) < thresh;
+}
+
 void run_inference(int16_t buffer[],  size_t samples, ei_impulse_result_t &result, int &pred_no) {
     // set the global buffer pointer that get_data will hand over to the model
     get_data_buffer_ptr = buffer;
@@ -105,7 +121,7 @@ void run_inference(int16_t buffer[],  size_t samples, ei_impulse_result_t &resul
         }
         // print(" %s:%.3f", result.classification[ix].label, result.classification[ix].value);
     }
-    //println(" pred=%s", result.classification[pred_no].label);
+    // println(" pred=%s", result.classification[pred_no].label);
 #if EI_CLASSIFIER_HAS_ANOMALY == 1
         ei_printf("    anomaly score: %.3f\n", result.anomaly);
 #endif
@@ -271,8 +287,10 @@ void executeManualCommand() {
 
 
 // send a single Page Up
+#ifdef INC_KEYBOARD
 static uint32_t key_pressed_ms;
 static uint16_t key_pressed = 0;
+#endif
 static void send_keyboard_key(uint16_t key) {
 #ifdef INC_KEYBOARD
     key_pressed = key;
@@ -333,6 +351,35 @@ void drainAudioInputBuffer(int16_t audio_in_buffer[], size_t &added_samples) {
 
 void watchdogCallback() {
   println("watchdog woke up");
+}
+
+uint16_t silence_label_no = EI_CLASSIFIER_LABEL_COUNT;
+uint16_t weiter_label_no = EI_CLASSIFIER_LABEL_COUNT;
+uint16_t next_label_no = EI_CLASSIFIER_LABEL_COUNT;
+uint16_t zurueck_label_no = EI_CLASSIFIER_LABEL_COUNT;
+uint16_t back_label_no = EI_CLASSIFIER_LABEL_COUNT;
+
+void init_special_labels() {
+    for (int i = 0;i<EI_CLASSIFIER_LABEL_COUNT;i++) {
+        if (String(ei_classifier_inferencing_categories[i]) == String("silence"))
+            silence_label_no = i;
+        if (String(ei_classifier_inferencing_categories[i]) == String("weiter"))
+            weiter_label_no = i;
+        if (String(ei_classifier_inferencing_categories[i]) == String("next"))
+            next_label_no = i;
+        if (String(ei_classifier_inferencing_categories[i]) == String("zurück"))
+            zurueck_label_no = i;
+        if (String(ei_classifier_inferencing_categories[i]) == String("back"))
+            back_label_no = i;
+    }
+
+    if ((silence_label_no == EI_CLASSIFIER_LABEL_COUNT) ||
+        (weiter_label_no == EI_CLASSIFIER_LABEL_COUNT) ||
+        (next_label_no == EI_CLASSIFIER_LABEL_COUNT) ||
+        (zurueck_label_no == EI_CLASSIFIER_LABEL_COUNT) ||
+        (back_label_no == EI_CLASSIFIER_LABEL_COUNT)) {
+         print("Special label not found!");
+    }
 }
 
 void setup() {
@@ -408,6 +455,9 @@ void setup() {
   config.callback = watchdogCallback;
   wdt.begin(config);
 
+  // find the labels we treat specially 
+  init_special_labels();
+
   println("Son of Jochen V%i - h for help", version);
 };
 
@@ -457,7 +507,7 @@ void loop() {
     // read all available samples
     const int inference_freq = 50;                  // [Hz], every 20ms we run inference (one inference call is approximately 8ms)
     static int loop_counter = 0;
-    static const int same_pred_duration  = 250;     // 5 predictions in a row give a result 
+    static const int same_pred_duration  = 200;     // 4 predictions in a row give a result 
     static const int same_pred_count_req = same_pred_duration/(1000/inference_freq);
 
     if (recorder.available() > 0) {
@@ -476,9 +526,18 @@ void loop() {
         digitalWrite(LED_RECORDING_PIN, HIGH);
         ei_impulse_result_t result = { 0 };
         int pred_no;
-        run_inference(audioBuffer, OUT_SAMPLES, result,pred_no);
-        
-        // once a second, send the packet to the PC
+        String pred_label;
+        float pred_certainty;
+
+        if (is_silence(audioBuffer, OUT_SAMPLES, 5e-6f)) {
+            pred_no = silence_label_no;
+            pred_label = "silence";
+            pred_certainty = 1.0;
+        } else {
+            run_inference(audioBuffer, OUT_SAMPLES, result,pred_no);
+            pred_label = String(result.classification[pred_no].label);
+            pred_certainty = result.classification[pred_no].value;
+        }
 
         loop_counter++;
         if ((loop_counter % inference_freq) == 0) {
@@ -499,26 +558,19 @@ void loop() {
         }
 
         if (same_pred_count == same_pred_count_req) {
-          String label = String(result.classification[pred_no].label);
-          bool next_page =  ((label == String("weiter")) || (label == String("next")));
-          bool prev_page =  ((label == String("zurück")) || (label == String("back")));
+          bool next_page =  (pred_no == weiter_label_no) || (pred_no == next_label_no);
+          bool prev_page =  (pred_no == zurueck_label_no) || (pred_no == next_label_no);
+
           static int32_t last_anouncement = millis();
           int32_t now = millis();
           if (next_page  || prev_page) {
-            // debounce announcement
+            // debounce announcement, at least 1000ms between two different actions
             if (now - last_anouncement > 1000) {
-              if (next_page) {
-                  println("Send %s: %.5f", result.classification[pred_no].label, result.classification[pred_no].value);
+              println("Send %s: %.5f", result.classification[pred_no].label, pred_certainty);
+              if (next_page)
                   send_keyboard_key(KEY_PAGE_DOWN);
-                  send_audio_packet(audioBuffer, OUT_SAMPLES, result);
-
-              }
-              if (prev_page) {
+              if (next_page)
                   send_keyboard_key(KEY_PAGE_UP);
-                  println("Send %s: %.5f", result.classification[pred_no].label, result.classification[pred_no].value);
-                  send_audio_packet(audioBuffer, OUT_SAMPLES, result);
-
-              }
               last_anouncement = now;
             }
           }
@@ -548,7 +600,9 @@ if (recording_mode && recorder.available()) {
 
             ei_impulse_result_t result = { 0 };
             int pred_no;
+            float rms = compute_rms(audioBuffer, OUT_SAMPLES);
             run_inference(audioBuffer, filteredbytes, result, pred_no);
+
             send_audio_packet(audioBuffer, filteredbytes, result);
             Serial.flush();
 

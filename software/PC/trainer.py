@@ -241,6 +241,19 @@ def record_from_mic(label):
         with keyboard.Listener(on_press=on_press, on_release=on_release) as listener:
             listener.join()
 
+import numpy as np
+
+def compute_rms(samples):
+    """
+    samples: 1D int16-Array, unskaliert (–32768…+32767)
+    threshold: RMS**2–Schwelle in (–1…1)²–Normierung
+    """
+    # 1) Normierung auf [–1…1]
+    y = samples.astype(np.float32) / 32768.0
+    # 2) RMS**2 (Average Power)
+    power = np.mean(y*y)
+    return power;
+
 # === optimise data set ===
 
 def count_files_per_label(dataset_dir=OPTIMISED_DATASET_DIR, extensions=(".wav", ".mp3")):
@@ -322,7 +335,8 @@ def optimise_dataset(dataset_dir="dataset", target_sample_rate=16000):
                 # export all segments, using a single counter per out_label
                 for chunk in segments:
                     idx      = label_counters[out_label]
-                    out_name = f"{out_label}_{basename}_{idx:04d}.wav"
+                    # nur Label + Punkt + Nummer (4-stellig), z.B. weiter.0001.wav
+                    out_name = f"{out_label}.{basename}.{idx:04d}.wav"
                     out_path = os.path.join(output_dir, out_name)
                     if not os.path.exists(out_path):
                         chunk.export(out_path, format="wav")
@@ -378,7 +392,7 @@ def augment_balance(
     target_cmd=100,
     unknown_multiplier=4,
     bg_multiplier=2,
-    target_silence=60,
+    target_silence=100,
     snr_range_db=(0, 20),            # SNR range for bg scaling
     global_gain_range_db=(-6, 6),    # global gain offset
     silence_gain_dB=-6,
@@ -514,7 +528,7 @@ def augment_balance(
             if random.random() < soft_clipping_prob: y = soft_clip(y)
             if np.max(np.abs(y))>1: y/=np.max(np.abs(y))
             out = np_to_seg(y)
-            out.export(os.path.join(optimised_dir, label, f"{label}_aug_{counter:04d}.wav"), format='wav')
+            out.export(os.path.join(optimised_dir, label, f"{label}.aug_{counter:04d}.wav"), format='wav')
             counter+=1
         print(f"✔️ '{label}': {curr}→{counter}")
 
@@ -533,7 +547,7 @@ def augment_balance(
                     (apply_filter,0.5),(apply_reverb,0.3),(add_synthetic_noise,0.8),(random_crop_pad,0.5)]: y=maybe_apply(fn,y,prob=p)
         if random.random()<soft_clipping_prob: y=soft_clip(y)
         if np.max(np.abs(y))>1: y/=np.max(np.abs(y))
-        out=np_to_seg(y); out.export(os.path.join(optimised_dir,label,f"{label}_aug_{counter:04d}.wav"),format='wav'); counter+=1
+        out=np_to_seg(y); out.export(os.path.join(optimised_dir,label,f"{label}.aug_{counter:04d}.wav"),format='wav'); counter+=1
     print(f"✔️ 'unknown': {curr}→{counter}")
 
     # 3) BACKGROUND
@@ -548,7 +562,7 @@ def augment_balance(
         for fn,p in [(rate_perturb,0.7),(apply_time_stretch,0.3),(apply_filter,0.5),
                     (add_synthetic_noise,0.8),(random_crop_pad,0.5)]: y=maybe_apply(fn,y,prob=p)
         if np.max(np.abs(y))>1: y/=np.max(np.abs(y))
-        out=np_to_seg(y); out.export(os.path.join(optimised_dir,label,f"{label}_aug_{counter:04d}.wav"),format='wav'); counter+=1
+        out=np_to_seg(y); out.export(os.path.join(optimised_dir,label,f"{label}.aug_{counter:04d}.wav"),format='wav'); counter+=1
     print(f"✔️ '{bg_label}': {curr}→{counter}")
 
     # 4) SILENCE
@@ -558,7 +572,7 @@ def augment_balance(
         seg=AudioSegment.from_wav(random.choice(paths)); y=seg_to_np(seg)
         for fn,p in [(random_crop_pad,0.5),(add_synthetic_noise,0.5)]: y=maybe_apply(fn,y,prob=p)
         if np.max(np.abs(y))>1: y/=np.max(np.abs(y))
-        out=np_to_seg(y); out.export(os.path.join(optimised_dir,label,f"{label}_aug_{counter:04d}.wav"),format='wav'); counter+=1
+        out=np_to_seg(y); out.export(os.path.join(optimised_dir,label,f"{label}.aug_{counter:04d}.wav"),format='wav'); counter+=1
     print(f"✔️ '{silence_label}': {curr}→{counter}")
 
 
@@ -832,10 +846,11 @@ def main():
                     #sd.wait()
 
                     # 4) Run inference
+                    rms    = compute_rms(samples);
                     scores    = model_interface.classify(samples)
                     pred_idx  = int(np.argmax(scores))
                     pred_label= LABELS[pred_idx]
-                    print(f"C++ scores: {', '.join(f'{label}={score:.5f}' for label, score in zip(LABELS, scores))} --> : {pred_label}")
+                    print(f"C++ scores: {', '.join(f'{label}={score:.5f}' for label, score in zip(LABELS, scores))} (rms={rms})--> : {pred_label}")
  
                     # 5a) if the user pre-selected a ground-truth label, only save on mismatch
                     if label is not None:
