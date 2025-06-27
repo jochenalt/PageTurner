@@ -43,16 +43,6 @@ struct eeprom_master_type {
 configuration_type config;
 
 
-static void println(const char* format, ...) {
-  	char s[256];
- 	__gnuc_va_list  args;		
-  	va_start(args, format);
-  	vsprintf (s, format, args);
-  	va_end(args);
-  	LOGSerial.println(s);
-};
-
-
 // write the full config block to EEPROM
 void configuration_type::write() {
 	config.write_counter++;				// mark an additional write cycle

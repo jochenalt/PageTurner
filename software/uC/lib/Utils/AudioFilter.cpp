@@ -93,10 +93,10 @@ float Biquad::process(float x0) {
 
 void initFilters() {
     if (!FILTERS_INITIALIZED) {
-        lpFilterIn.initLowpass(INPUT_RATE, 8000.0f, 0.707f);
-        bpFilter.initBandpass(OUTPUT_RATE, 1850.0f, 0.707f);
-        highPassFilterOut.initHighpass(OUTPUT_RATE, 300, 0.707f);
-        lowPassFilterOut.initLowpass(OUTPUT_RATE, 3400, 0.707f);
+        lpFilterIn.initLowpass(INPUT_SAMPLE_RATE, 8000.0f, 0.707f);
+        bpFilter.initBandpass(OUTPUT_SAMPLE_RATE, 1850.0f, 0.707f);
+        highPassFilterOut.initHighpass(OUTPUT_SAMPLE_RATE, 300, 0.707f);
+        lowPassFilterOut.initLowpass(OUTPUT_SAMPLE_RATE, 3400, 0.707f);
 
     }
 }

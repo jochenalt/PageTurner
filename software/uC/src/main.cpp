@@ -57,23 +57,6 @@ bool streaming_mode = false;
 bool production_mode = false;
 
 
-void println(const char* format, ...) {
-    char s[256];
- 	  __gnuc_va_list  args;		
-    va_start(args, format);
-    vsprintf (s, format, args);
-    va_end(args);
-    LOGSerial.println(s);
-};
-
-void print(const char* format, ...) {
-    char s[256];
- 	  __gnuc_va_list  args;		
-    va_start(args, format);
-    vsprintf (s, format, args);
-    va_end(args);
-    LOGSerial.print(s);
-};
 
 // callback function required for calling inference
 static int16_t* get_data_buffer_ptr = NULL;
@@ -598,7 +581,6 @@ if (recording_mode && recorder.available()) {
 
             ei_impulse_result_t result = { 0 };
             int pred_no;
-            float rms = compute_rms(audioBuffer, OUT_SAMPLES);
             run_inference(audioBuffer, filteredbytes, result, pred_no);
 
             send_audio_packet(audioBuffer, filteredbytes, result);
