@@ -10,6 +10,7 @@ void save_wav_file(const char* label, uint16_t label_no, const int16_t buf[], si
     return;
   }
 
+  println("saving %s", label);
   // build filename
   String fname = "/" + String(label) + "." + String(labelCounters[label_no]) + ".wav";
   File wf = SD.open(fname.c_str(), FILE_WRITE);
@@ -41,6 +42,8 @@ void save_wav_file(const char* label, uint16_t label_no, const int16_t buf[], si
   wf.write((uint8_t*)buf, dataBytes);
   wf.close();
   println("save %s", fname.c_str()); 
+
+  labelCounters[label_no]++;
 }
 
 
@@ -57,7 +60,8 @@ int identifyNextFileID(const char* label) {
       int dot = name.indexOf('.');
       int dot2 = name.lastIndexOf('.');
       size_t n = name.substring(dot+1, dot2).toInt();
-      idx = max(idx, n+1);
+      idx = max(idx, n);
+      println("found %s",name.c_str());
     }
     f.close();
   }
@@ -80,19 +84,20 @@ void init_sd_files(size_t nol, const char* categories[]) {
         println("No SD card present, ""bad AI"" not functional");
         sd_card_present  = false;
     } else {
+        sd_card_present = true;
         bool no_file = true;
         for (size_t i = 0;i<no_of_labels;i++) {
-            int no_of_files = identifyNextFileID(categories[i]);
-            labelCounters[i] = no_of_files;
+            int no_of_files = identifyNextFileID(categories[i])-1;
+            labelCounters[i] = no_of_files+1;
             if (no_of_files > 0) {
-            
-            if (no_file)
-                println("SD card:");
+              if (no_file)
+                  println("SD card:");
 
-            no_file = false;
-
-            println("%i bad AI files of label %s",no_of_files, categories[labelCounters[i]]);
+              no_file = false;
+              println("found %i bad AI files of label %s",no_of_files, categories[i]);
             }
         }
+        if (no_file)
+          println("no bad sound files found on SD card");
     }
 }

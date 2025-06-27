@@ -50,7 +50,7 @@ const uint16_t version = VERSION;
 #define REC_BUTTON_PIN     5 
 
 // Button starting the recording
-#define BADAI_BUTTON_PIN      14 
+#define BAD_AI_BUTTON_PIN     14 
 
 // Button starting the recording
 #define METRONOME_LED_PIN 9 
@@ -76,6 +76,8 @@ const uint16_t version = VERSION;
 #define CMD_SAMPLE_COUNT     0xA2       // total number of audio samples (a 2 bytes) being sent in the CMD_AUDIO_SNIPPET command.
 #define CMD_AUDIO_STREAM     0xA3       // audio snippet of a permanend audio stream
 
+// buttons are debounced by 50ms
+const unsigned long debounceDelay = 50; 
 
 // parameter for recording
 #define RECORD_SECONDS 1

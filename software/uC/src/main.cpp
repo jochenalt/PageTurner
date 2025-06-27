@@ -15,6 +15,7 @@
 #include "AudioFilter.h"
 #include "Metronome.h"  
 #include "Watchdog_t4.h"
+#include "sd_files.h"
 
 #ifndef PLATFORMIO
 #define INC_KEYBOARD
@@ -50,23 +51,19 @@ Metronome metronome;
 WDT_T4<WDT1> wdt;
 
 
-static int16_t audioBuffer[OUT_SAMPLES];  // full 16 kHz output
-bool   recording_mode = false;                  // true, if recording is happening
-bool streaming_mode = false;
+static int16_t audio_raw_buffer[RAW_SAMPLES];   // full 44.1 kHz buffer of the last second
+static int16_t audio_out_buffer[OUT_SAMPLES];  // full 16 kHz output
 
+bool recording_mode = false;                 // true, if recording is happening
+bool streaming_mode = false;
 bool production_mode = false;
 
+// store last audio buffer that ran inference, in case the 
+// user pushs "bad AI" and wants to store it on SD  
+static int16_t lastAudioBuffer[OUT_SAMPLES];
+static uint16_t lastLabelNo = 0;
 
-
-// callback function required for calling inference
-static int16_t* get_data_buffer_ptr = NULL;
-static int get_data(size_t offset, size_t length, float *out_ptr)
-{
-    numpy::int16_to_float(&get_data_buffer_ptr[offset], out_ptr, length);
-    return 0;
-}
-
-float  compute_rms(const int16_t* samples, size_t len) {
+float compute_rms(const int16_t* samples, size_t len) {
     uint64_t acc = 0;
     for (size_t i = 0; i < len; ++i) {
         float y = samples[i] / 32768.0f;   // Normierung auf [–1..1]
@@ -76,8 +73,16 @@ float  compute_rms(const int16_t* samples, size_t len) {
     return mean;
 }
 
-bool is_silence(const int16_t* samples, size_t len, float thresh = 0.0002) {
+bool is_silence(const int16_t* samples, size_t len, float thresh) {
     return compute_rms(samples, len) < thresh;
+}
+
+// callback function required for calling inference
+static int16_t* get_data_buffer_ptr = NULL;
+static int get_data(size_t offset, size_t length, float *out_ptr)
+{
+    numpy::int16_to_float(&get_data_buffer_ptr[offset], out_ptr, length);
+    return 0;
 }
 
 void run_inference(int16_t buffer[],  size_t samples, ei_impulse_result_t &result, int &pred_no) {
@@ -114,7 +119,7 @@ void run_inference(int16_t buffer[],  size_t samples, ei_impulse_result_t &resul
 // Debounced recording button 
 // Returns true if button state changed (press or release)
 // Outputs current stable state in 'state' (LOW = pressed)
-bool checkButton(bool& state) {
+bool checkRecButton(bool& state) {
   const unsigned long debounceDelay = 50; // debounce time in [s]
 
   static bool lastButtonReading = HIGH;
@@ -137,6 +142,33 @@ bool checkButton(bool& state) {
   }
 
   lastButtonReading = reading;
+  return false;  // no change
+}
+
+
+// Debounced bad AI button 
+// Returns true if button state changed (press or release)
+// Outputs current stable state in 'state' (LOW = pressed)
+bool checkBadAIButton(bool& state) {
+  static bool lastBadIAButtonReading = HIGH;
+  static bool stableBadAIButtonState = HIGH;
+  static unsigned long lastDebounceTime = 0;
+
+  bool reading = digitalRead(BAD_AI_BUTTON_PIN);
+  if (reading != lastBadIAButtonReading) {
+    lastDebounceTime = millis();
+  }
+
+  if ((millis() - lastDebounceTime) > debounceDelay) {
+    if (reading != stableBadAIButtonState) {
+      stableBadAIButtonState = reading;
+      state = !stableBadAIButtonState;
+      lastBadIAButtonReading = reading;
+      return true;  // state has changed
+    }
+  }
+
+  lastBadIAButtonReading = reading;
   return false;  // no change
 }
 
@@ -369,8 +401,8 @@ void setup() {
   pinMode(LED_LISTENING_PIN, OUTPUT);  
   pinMode(LED_RECORDING_PIN, OUTPUT);
   pinMode(LED_COMMS_PIN, OUTPUT);
-  // pinMode(LED_BUILTIN, OUTPUT);
   pinMode(REC_BUTTON_PIN, INPUT_PULLUP);
+  pinMode(BAD_AI_BUTTON_PIN, INPUT_PULLUP);
 
   for (int i = 0;i<4;i++) {
     if (i>0)
@@ -431,20 +463,22 @@ void setup() {
   metronome.setTempo(120); 
   metronome.turn(false);
 
-  // watchdog
+  // find the labels we treat specially 
+  init_special_labels();
+
+
+  println("AI-based voice controlled page turner V%i - h for help", version);
+
+  // initialise SD card we use to store wrong inference results 
+  init_sd_files(EI_CLASSIFIER_LABEL_COUNT, ei_classifier_inferencing_categories);
+
+    // watchdog
    WDT_timings_t config;
   config.trigger = 2; /* in seconds, 0->128 */
   config.timeout = 1; /* in seconds, 0->128 */
   config.callback = watchdogCallback;
   wdt.begin(config);
-
-  // find the labels we treat specially 
-  init_special_labels();
-
-  println("Son of Jochen V%i - h for help", version);
 };
-
-static int16_t audio_in_buffer[RAW_SAMPLES] = {0};
 
 void loop() {
   // feed the watch dog
@@ -457,19 +491,28 @@ void loop() {
   update_keyboard_release();
   
   // check if the recording button has been pushed
-  static bool buttonState=false;                             // state after the action, true = pushed
-  bool buttonChange = checkButton(buttonState); // true if turned off or turned on
+  static bool recButtonState=false;                             // state after the action, true = pushed
+  bool recButtonChange = checkRecButton(recButtonState); // true if turned off or turned on
+
+  static bool badAIButtonState = false;
+  bool badAIbuttonChange = checkBadAIButton(badAIButtonState); 
+  if (badAIbuttonChange && badAIButtonState && (lastLabelNo != silence_label_no)) {
+    println("saving wrong label");
+    save_wav_file(ei_classifier_inferencing_categories[lastLabelNo], lastLabelNo, lastAudioBuffer, OUT_SAMPLES);
+    // save it only once, so reset the last prediction to silence
+    lastLabelNo = silence_label_no;
+  }
 
   // start audio if evaluation mode is on or we pushed the button
-  if ((!recording_mode && buttonChange && buttonState)) { 
+  if ((!recording_mode && recButtonChange && recButtonState)) { 
       digitalWrite(LED_RECORDING_PIN, HIGH);
       uint32_t now = millis();
 
-      while ((millis() - now < 1000) && buttonState) {
+      while ((millis() - now < 1000) && recButtonState) {
         delay(10);
-        buttonChange = checkButton(buttonState); // true if turned off or turned on
+        recButtonChange = checkRecButton(recButtonState); // true if turned off or turned on
       }
-      if (buttonState) {
+      if (recButtonState) {
         // if button is still pressed, set streaming mode
         streaming_mode = true;
         recording_mode = true;
@@ -488,15 +531,14 @@ void loop() {
   if (production_mode) {
     
     // read all available samples
-    const int inference_freq = 50;                  // [Hz], every 20ms we run inference (one inference call is approximately 8ms)
-    static const int same_pred_duration  = 200;     // 4 predictions in a row give a result 
-    static const int same_pred_count_req = same_pred_duration/(1000/inference_freq);
+    const int inference_freq = 50;                   // [Hz], every 20ms we run inference (one inference call is approximately 8ms)
+    static const int same_pred_count_req = 6;        // so many predictions need to be the same to count  
 
     if (recorder.available() > 0) {
       size_t added;
-      drainAudioInputBuffer(audio_in_buffer, added);
+      drainAudioInputBuffer(audio_raw_buffer, added);
       size_t filteredbytes;
-      processAudioBuffer(audio_in_buffer, RAW_SAMPLES, audioBuffer, filteredbytes);
+      processAudioBuffer(audio_raw_buffer, RAW_SAMPLES, audio_out_buffer, filteredbytes);
 
       // once we’ve seen all RAW_SAMPLES, finish up:
       uint32_t now = millis();
@@ -511,12 +553,14 @@ void loop() {
         String pred_label;
         float pred_certainty;
 
-        if (is_silence(audioBuffer, OUT_SAMPLES, 0.0002)) {
+        if (is_silence(audio_out_buffer, OUT_SAMPLES, 0.00015)) {
+             // float rms = compute_rms(audio_in_buffer, OUT_SAMPLES);
+             // println("rms=%f", rms);
             pred_no = silence_label_no;
             pred_label = "silence";
             pred_certainty = 1.0;
         } else {
-            run_inference(audioBuffer, OUT_SAMPLES, result,pred_no);
+            run_inference(audio_out_buffer, OUT_SAMPLES, result,pred_no);
             pred_label = String(result.classification[pred_no].label);
             pred_certainty = result.classification[pred_no].value;
         }
@@ -545,8 +589,14 @@ void loop() {
           static int32_t last_anouncement = millis();
           int32_t now = millis();
           if (next_page  || prev_page) {
+            // send_audio_packet(audio_out_buffer, filteredbytes, result);
+
             // debounce announcement, at least 1000ms between two different actions
             if (now - last_anouncement > debounce_anouncement_ms) {
+              // store the last audio buffer incase the user pushes "bad AI"
+              memcpy(lastAudioBuffer, audio_out_buffer, OUT_SAMPLES * sizeof(audio_out_buffer[0]));
+              lastLabelNo = pred_no;
+
               println("Send %s: %.5f", result.classification[pred_no].label, pred_certainty);
               if (next_page)
                   send_keyboard_key(KEY_PAGE_DOWN);
@@ -568,22 +618,22 @@ if (recording_mode && recorder.available()) {
 
       static size_t filter_samples_in_buffer = 0;
       size_t added_filtered_samples;
-      drainAudioInputBuffer(audio_in_buffer, added_filtered_samples);
+      drainAudioInputBuffer(audio_raw_buffer, added_filtered_samples);
       filter_samples_in_buffer += added_filtered_samples;
       size_t filteredbytes;
 
       if (filter_samples_in_buffer >= RAW_SAMPLES) {
             // 1) produce and send a 1 s snippet
-            processAudioBuffer(audio_in_buffer, RAW_SAMPLES, audioBuffer, filteredbytes);
+            processAudioBuffer(audio_raw_buffer, RAW_SAMPLES, audio_out_buffer, filteredbytes);
             
             size_t totalBytes = filteredbytes * BYTES_PER_SAMPLE;
             println("recording of %u samples (%u bytes) sent", filteredbytes, totalBytes);
 
             ei_impulse_result_t result = { 0 };
             int pred_no;
-            run_inference(audioBuffer, filteredbytes, result, pred_no);
+            run_inference(audio_out_buffer, filteredbytes, result, pred_no);
 
-            send_audio_packet(audioBuffer, filteredbytes, result);
+            send_audio_packet(audio_out_buffer, filteredbytes, result);
             Serial.flush();
 
             // 2) reset counter for the *next* second
@@ -600,7 +650,7 @@ if (recording_mode && recorder.available()) {
               // button released → clean up
               recording_mode = false;
               digitalWrite(LED_RECORDING_PIN, LOW);
-              println("recording finished (button released).");
+              println("recording finished");
             }
     }
 }
