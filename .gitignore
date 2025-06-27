@@ -88,3 +88,6 @@ software/uC/lib/ei_arduino_library/PageTurner_inferencing.h
 software/PC/ei_cpp_library/
 software/PC/__pycache__/
 software/Arduino/libraries/
+software - Copy/
+software/optimised_trainingdata/
+software/trainingdata/

@@ -1,10 +1,9 @@
-// Audio data converted from WAV file by wav2sketch
+// This is the original Franz LM-4 click sound, recorded on my original (proud)
 
 #include "FranzMetronomeClickSample.h"
 
 // Converted from FranzMetronomeClickSample.wav, using 44100 Hz, u-law encoding
 const unsigned int FranzMetronomeClickSample[29441] =
-
 {
 0x8100E59F,0x00B8009E,0x00BE00A2,0x00B900A9,0x00AC00B5,0x00AF00B0,0x00AA00B3,0x00BB00BC,
 0x00B700BC,0x00A2009F,0x0093009B,0x007D0098,0x007F0089,0x00840082,0x00860086,0x0087008B,
