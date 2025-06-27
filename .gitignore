@@ -91,3 +91,5 @@ software/Arduino/libraries/
 software - Copy/
 software/optimised_trainingdata/
 software/trainingdata/
+software/dataset/
+software/trainingdataset/

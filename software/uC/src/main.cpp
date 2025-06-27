@@ -16,6 +16,7 @@
 #include "Metronome.h"  
 #include "Watchdog_t4.h"
 #include "sd_files.h"
+#include "bluetooth.h"
 
 #ifndef PLATFORMIO
 #define INC_KEYBOARD
@@ -398,26 +399,35 @@ void init_special_labels() {
 }
 
 void setup() {
-  pinMode(LED_LISTENING_PIN, OUTPUT);  
+
+  LOGSerial.begin(115200);
+  Serial.begin(115200);
+
+  // bluetooth board needs to reset after this, so do all the rest before actually 
+  // initialising it 
+  init_bluetooth_baudrate();     // change baudrate to 115200
+
+
+  pinMode(LED_PAGE_DOWN, OUTPUT);  
   pinMode(LED_RECORDING_PIN, OUTPUT);
-  pinMode(LED_COMMS_PIN, OUTPUT);
+  pinMode(LED_PAGE_UP, OUTPUT);
   pinMode(REC_BUTTON_PIN, INPUT_PULLUP);
   pinMode(BAD_AI_BUTTON_PIN, INPUT_PULLUP);
 
   for (int i = 0;i<4;i++) {
     if (i>0)
       delay(100);
-    digitalWrite(LED_LISTENING_PIN,HIGH);
+    digitalWrite(LED_PAGE_DOWN,HIGH);
     delay(20);
-    digitalWrite(LED_COMMS_PIN,HIGH);
+    digitalWrite(LED_PAGE_UP,HIGH);
     delay(20);
     digitalWrite(LED_RECORDING_PIN,HIGH);
     delay(20);
     // digitalWrite(LED_BUILTIN,HIGH);    
     delay(50);
-    digitalWrite(LED_LISTENING_PIN,LOW);
+    digitalWrite(LED_PAGE_DOWN,LOW);
     delay(20);
-    digitalWrite(LED_COMMS_PIN,LOW);
+    digitalWrite(LED_PAGE_UP,LOW);
     delay(20);
     digitalWrite(LED_RECORDING_PIN,LOW);
     delay(20);
@@ -429,8 +439,6 @@ void setup() {
   // initialise EEPROM
   persConfig.setup(); 
 
-  LOGSerial.begin(115200);
-  Serial.begin(115200);
 
   // Enable the audio shield+
   AudioMemory(280);                                      // Allocate audio processing memory. Without Metronome, only 80 is required
@@ -466,11 +474,14 @@ void setup() {
   // find the labels we treat specially 
   init_special_labels();
 
-
   println("AI-based voice controlled page turner V%i - h for help", version);
 
+  
   // initialise SD card we use to store wrong inference results 
   init_sd_files(EI_CLASSIFIER_LABEL_COUNT, ei_classifier_inferencing_categories);
+
+  // initialise bluettooth module
+  init_bluetooth();
 
     // watchdog
    WDT_timings_t config;
@@ -489,7 +500,8 @@ void loop() {
   
   // release a pressed key       
   update_keyboard_release();
-  
+  update_bluetooth_release();
+
   // check if the recording button has been pushed
   static bool recButtonState=false;                             // state after the action, true = pushed
   bool recButtonChange = checkRecButton(recButtonState); // true if turned off or turned on
@@ -598,10 +610,14 @@ void loop() {
               lastLabelNo = pred_no;
 
               println("Send %s: %.5f", result.classification[pred_no].label, pred_certainty);
-              if (next_page)
+              if (next_page) {
                   send_keyboard_key(KEY_PAGE_DOWN);
-              if (next_page)
+                  send_bluetooth_command(KEY_PAGE_DOWN);
+              }
+              if (next_page) {
                   send_keyboard_key(KEY_PAGE_UP);
+                  send_bluetooth_command(KEY_PAGE_UP);
+              }
               last_anouncement = now;
             }
           }

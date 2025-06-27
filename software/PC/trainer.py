@@ -39,8 +39,8 @@ CMD_AUDIO_RECORDING = 0xA1
 CMD_SAMPLE_COUNT    = 0xA2
 CMD_AUDIO_STREAM    = 0xA3
 
-DATASET_DIR             = "dataset"
-OPTIMISED_DATASET_DIR   = "optimised_dataset"
+DATASET_DIR             = "../dataset"
+OPTIMISED_DATASET_DIR   = "../trainingdataset"
 MODEL_OUTPUT_DIR        = "model"
 
 RECORD_SECONDS    = 1      
@@ -273,7 +273,7 @@ def count_files_per_label(dataset_dir=OPTIMISED_DATASET_DIR, extensions=(".wav",
 
 
 
-def optimise_dataset(dataset_dir="dataset", target_sample_rate=16000):
+def optimise_dataset(dataset_dir=DATASET_DIR, target_sample_rate=16000):
     # ── clean out previous optimised data ────────────────────────────────────────
     if os.path.isdir(OPTIMISED_DATASET_DIR):
         shutil.rmtree(OPTIMISED_DATASET_DIR)

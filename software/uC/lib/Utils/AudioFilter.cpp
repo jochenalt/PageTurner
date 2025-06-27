@@ -106,7 +106,7 @@ void processAudioBuffer(const int16_t* inputBuf, size_t inLen, int16_t outBuf[],
     outLen = size_t(ratio * inLen  + 0.5f);
     outLen = min(outLen, (size_t)OUT_SAMPLES);
 
-    // 2) Resample → 16 kHz with 3-tap smoothing
+    // Resample → 16 kHz with 3-tap smoothing
     for (size_t j = 0; j < outLen; j++) {
 
         float pos = j / ratio;
@@ -119,7 +119,7 @@ void processAudioBuffer(const int16_t* inputBuf, size_t inLen, int16_t outBuf[],
         if (i0 + 1 < int(inLen)){ sum += inputBuf[i0 + 1]/32768.0f; cnt += 1; }
         float downsampled =  sum / cnt;
 
-            // 3) Bandpass 300-3400Hz @ 16 kHz und Rückumwandlung in int16
+        // 3) Bandpass 300-3400Hz @ 16 kHz und Rückumwandlung in int16
         float y = lowPassFilterOut.process(highPassFilterOut.process(downsampled));
         float scaled = y * 32767.0f;
         if (scaled >  32767.0f) scaled =  32767.0f;
