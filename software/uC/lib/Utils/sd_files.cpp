@@ -61,7 +61,7 @@ int identifyNextFileID(const char* label) {
       int dot2 = name.lastIndexOf('.');
       size_t n = name.substring(dot+1, dot2).toInt();
       idx = max(idx, n);
-      println("found %s",name.c_str());
+      // println("found %s",name.c_str());
     }
     f.close();
   }

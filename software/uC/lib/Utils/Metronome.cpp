@@ -1,6 +1,7 @@
 
 #include "Metronome.h"
 #include "constants.h"
+#include <Audio.h>
 
 extern AudioPlayMemory        clickPlayer;
 

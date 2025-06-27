@@ -1,7 +1,6 @@
 #pragma once
 
 #include <Arduino.h>
-#include <Audio.h>
 
 class Biquad {
 public:

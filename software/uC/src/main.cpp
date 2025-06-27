@@ -3,11 +3,12 @@
 #include "PageTurner_inferencing.h"
 
 #include <Arduino.h>
-
 #include <HardwareSerial.h>
 
-#include <Audio.h>                                          // Audio Library for Audio Shield
+// #include <Audio.h>                                          // Audio Library for Audio Shield
 #include <Wire.h>                                           // für Verbindung mit Audio Shield 
+#include <Audio.h>                                        
+
 #include "SerialProtocol.h"
 #include "constants.h"
 #include "EEPROMStorage.h"
@@ -540,13 +541,26 @@ void loop() {
       }
   }
 
+  // run inference on the 1s window
+
   if (production_mode) {
-    
+     digitalWrite(LED_PAGE_UP, HIGH);
+
+    static uint32_t last_time_audio_receiver = millis();
+    uint32_t no_audio_for = millis() - last_time_audio_receiver;
+    if (no_audio_for > 200) {
+      println("no audio for %ums",no_audio_for);
+      last_time_audio_receiver = millis();
+    } 
+
     // read all available samples
     const int inference_freq = 50;                   // [Hz], every 20ms we run inference (one inference call is approximately 8ms)
-    static const int same_pred_count_req = 6;        // so many predictions need to be the same to count  
+    static const int same_pred_count_req = 5;        // so many predictions need to be the same to count  
 
     if (recorder.available() > 0) {
+      digitalWrite(LED_PAGE_DOWN, HIGH);
+
+      last_time_audio_receiver = millis();
       size_t added;
       drainAudioInputBuffer(audio_raw_buffer, added);
       size_t filteredbytes;
@@ -609,7 +623,7 @@ void loop() {
               memcpy(lastAudioBuffer, audio_out_buffer, OUT_SAMPLES * sizeof(audio_out_buffer[0]));
               lastLabelNo = pred_no;
 
-              println("Send %s: %.5f", result.classification[pred_no].label, pred_certainty);
+              println("Send %s: %.3f", result.classification[pred_no].label, pred_certainty);
               if (next_page) {
                   send_keyboard_key(KEY_PAGE_DOWN);
                   send_bluetooth_command(KEY_PAGE_DOWN);
@@ -625,7 +639,11 @@ void loop() {
 
         digitalWrite(LED_RECORDING_PIN, LOW);
       } // if we run inference
-    }
+      digitalWrite(LED_PAGE_DOWN, LOW);
+
+    } 
+    digitalWrite(LED_PAGE_UP, LOW);
+
   }
 
 
@@ -673,5 +691,7 @@ if (recording_mode && recorder.available()) {
 
 // react on manual input from Serial 
 executeManualCommand();
+
+
 
 }
