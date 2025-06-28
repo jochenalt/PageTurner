@@ -97,7 +97,7 @@ void init_sd_files(size_t nol, const char* categories[]) {
               println("found %i bad AI files of label %s",no_of_files, categories[i]);
             }
         }
-        if (no_file)
-          println("no bad sound files found on SD card");
+        // if (no_file)
+        //  println("no bad sound files found on SD card");
     }
 }
