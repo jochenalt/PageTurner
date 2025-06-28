@@ -75,7 +75,7 @@ DECLARE_SAFE_PIN(METRONOME_LED_PIN,9);
 #define CMD_AUDIO_RECORDING  0xA1       // 1s of audio recording being sent to pyhton
 #define CMD_SAMPLE_COUNT     0xA2       // total number of audio samples (a 2 bytes) being sent in the CMD_AUDIO_SNIPPET command.
 #define CMD_AUDIO_STREAM     0xA3       // audio snippet of a permanend audio stream
-
+#define AUDIO_BLOCK_SAMPLES  128
 // parameter for recording
 #define RECORD_SECONDS 1
 #define INPUT_SAMPLE_RATE 44100 // [Hz]

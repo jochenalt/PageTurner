@@ -39,8 +39,7 @@ void init_bluetooth() {
   // bluetoothHID.info();
 
   /* Change the device name to make it easier to find */
-  // println("bluetooth name is 'Page Turner'");  
-  if (! bluetoothHID.sendCommandCheckOK(F( "AT+GAPDEVNAME=Page Turner" )) ) {
+  println("Baptising device name to 'Page Turner'");  if (! bluetoothHID.sendCommandCheckOK(F( "AT+GAPDEVNAME=Page Turner" )) ) {
     println("Could not set device name!");
   }
 

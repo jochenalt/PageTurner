@@ -7,7 +7,7 @@
 
 // #include <Audio.h>                                          // Audio Library for Audio Shield
 #include <Wire.h>                                           // für Verbindung mit Audio Shield 
-#include <Audio.h>                                        
+// #include <Audio.h>                                        
 
 #include "SerialProtocol.h"
 #include "constants.h"
@@ -30,24 +30,6 @@ bool commandPending = false;                                // true if command p
 String command;                                             // current command coming in
 uint32_t commandLastChar_us = 0;                            // time when the last character came in (to reset command if no further input comes in) 
 
-// Audio signal routing
-AudioInputI2S        i2s_input;                             // Audio from MAX9814 via Audio Shield LINE IN
-AudioOutputI2S       audioOutput;                           // To headphone output
-AudioRecordQueue     recorder;                              // record 2s snippets
-
-// use simple (low latency) Biquad filter 2nd order to create a bandpass for speech (300-3400 Hz) at 12db
-AudioFilterBiquad       lowPass;     
-AudioFilterBiquad       highPass;      
-
-AudioConnection         patchMicToRecord1Cord1(i2s_input, 0, lowPass, 0);
-AudioConnection         patchMicToRecord2(lowPass, 0, highPass, 0);
-AudioConnection         patchMicToRecord3(highPass, 0, recorder, 0);   // record the left line in channel
-
-AudioControlSGTL5000 audioShield;
-
-AudioPlayMemory        clickPlayer;
-AudioConnection        patchMetronomToHeadphoneL(clickPlayer, 0, audioOutput, 0);
-AudioConnection        patchMetronomToHeadphoneR(clickPlayer, 0, audioOutput, 1);
 
 Metronome metronome;
 WDT_T4<WDT1> wdt;
@@ -55,10 +37,9 @@ WDT_T4<WDT1> wdt;
 
 static int16_t audio_raw_buffer[RAW_SAMPLES];   // full 44.1 kHz buffer of the last second
 static int16_t audio_out_buffer[OUT_SAMPLES];  // full 16 kHz output
-
 bool recording_mode = false;                 // true, if recording is happening
 bool streaming_mode = false;
-bool production_mode = false;
+bool production_mode = true;
 
 // store last audio buffer that ran inference, in case the 
 // user pushs "bad AI" and wants to store it on SD  
@@ -180,7 +161,7 @@ void gainUp() {
   if (config.model.gainLevel > 15)
      config.model.gainLevel = 15; 
   println("increase gain to %i",config.model.gainLevel);
-     audioShield.lineInLevel(config.model.gainLevel);                 // Line-in gain (0-15)
+     setGainLevel(config.model.gainLevel);                 // Line-in gain (0-15)
 }
 
 void gainDown() {
@@ -191,12 +172,12 @@ void gainDown() {
      config.model.gainLevel = 15; 
   println("decrease gain to %i",config.model.gainLevel);
 
-  audioShield.lineInLevel(config.model.gainLevel);                 // Line-in gain (0-15)
+  setGainLevel(config.model.gainLevel);                 // Line-in gain (0-15)
 }
 
 // print nice help text and give the status
 void printHelp() {
-  println("Son of Jochen V%i", version);
+  println("Page Turner V%i", version);
   println("   h       - help");
   println("   s       - self test");
   println("   p       - print configuration");
@@ -279,7 +260,7 @@ void executeManualCommand() {
 					production_mode = !production_mode;
           if (production_mode) {
             LOGSerial.println("production mode on");
-            recorder.clear();
+            recorderClear();
           } else 
           {
             LOGSerial.println("production mode off");
@@ -306,11 +287,11 @@ void executeManualCommand() {
 // send a single Page Up
 #ifdef INC_KEYBOARD
 static uint32_t key_pressed_ms;
-static uint16_t key_pressed = 0;
+static uint16_t key_pressed = millis();
 #endif
 static void send_keyboard_key(uint16_t key) {
 #ifdef INC_KEYBOARD
-    key_pressed = key;
+  key_pressed = key;
   key_pressed_ms = millis();
   Keyboard.press(key);
 #endif
@@ -319,12 +300,29 @@ static void send_keyboard_key(uint16_t key) {
 // send a single Page Down
 static void update_keyboard_release() {
 #ifdef INC_KEYBOARD
-    if ((key_pressed != 0) && (millis() - key_pressed_ms < 100)) {
+    if (millis() - key_pressed_ms < 100) {
     Keyboard.release(key_pressed);
     key_pressed_ms = 0;
   }
 #endif
+}
 
+// send a single Page Down
+static uint32_t page_led_on_ms = millis();
+void light_page_led(uint16_t key) {
+  page_led_on_ms = millis();
+  if (key == KEY_PAGE_DOWN)
+    digitalWrite(LED_PAGE_DOWN, HIGH);
+  if (key == KEY_PAGE_UP)
+    digitalWrite(LED_PAGE_UP, HIGH);
+}
+
+void update_page_LEDs() {
+    if (millis() - page_led_on_ms < 1000) {
+      digitalWrite (LED_PAGE_DOWN, LOW);
+      digitalWrite (LED_PAGE_UP, LOW);
+      page_led_on_ms = 0;
+  }
 }
 
 
@@ -351,20 +349,6 @@ void send_audio_packet(int16_t* audioBuf, size_t samples, ei_impulse_result_t &r
       send_packet(Serial, cmd, (uint8_t*)buffer, buffer_len);
 }
 
-void drainAudioInputBuffer(int16_t audio_in_buffer[], size_t &added_samples) {
-  added_samples = 0;
-  while (recorder.available()) {
-        int16_t* block = recorder.readBuffer();
-
-        // push new audio information to queue
-        uint16_t samples = AUDIO_BLOCK_SAMPLES;
-        memmove(audio_in_buffer, audio_in_buffer + samples, (RAW_SAMPLES - samples) * sizeof(audio_in_buffer[0]));
-        memcpy(audio_in_buffer + (RAW_SAMPLES - samples),block, samples * sizeof(audio_in_buffer[0]));
-
-        recorder.freeBuffer();
-        added_samples += samples;
-  }
-}
 
 void watchdogCallback() {
   println("watchdog woke up");
@@ -377,26 +361,17 @@ uint16_t zurueck_label_no = EI_CLASSIFIER_LABEL_COUNT;
 uint16_t back_label_no = EI_CLASSIFIER_LABEL_COUNT;
 
 void init_special_labels() {
-    for (int i = 0;i<EI_CLASSIFIER_LABEL_COUNT;i++) {
-        if (String(ei_classifier_inferencing_categories[i]) == String("silence"))
-            silence_label_no = i;
-        if (String(ei_classifier_inferencing_categories[i]) == String("weiter"))
-            weiter_label_no = i;
-        if (String(ei_classifier_inferencing_categories[i]) == String("next"))
-            next_label_no = i;
-        if (String(ei_classifier_inferencing_categories[i]) == String("zurück"))
-            zurueck_label_no = i;
-        if (String(ei_classifier_inferencing_categories[i]) == String("back"))
-            back_label_no = i;
-    }
+  String targets[] = { "silence", "weiter", "next", "zurück", "back" };
+  uint16_t* results[] = { &silence_label_no, &weiter_label_no, &next_label_no, &zurueck_label_no, &back_label_no };
 
-    if ((silence_label_no == EI_CLASSIFIER_LABEL_COUNT) ||
-        (weiter_label_no == EI_CLASSIFIER_LABEL_COUNT) ||
-        (next_label_no == EI_CLASSIFIER_LABEL_COUNT) ||
-        (zurueck_label_no == EI_CLASSIFIER_LABEL_COUNT) ||
-        (back_label_no == EI_CLASSIFIER_LABEL_COUNT)) {
-         print("Special label not found!");
-    }
+ for (int i = 0; i < EI_CLASSIFIER_LABEL_COUNT; i++) {
+      String label = ei_classifier_inferencing_categories[i];
+      for (int j = 0; j < sizeof(targets)/sizeof(targets[0]); j++) {
+          if (label == targets[j]) {
+              *results[j] = i;
+          }
+      }
+  }
 }
 
 void setup() {
@@ -415,57 +390,15 @@ void setup() {
   pinMode(REC_BUTTON_PIN, INPUT_PULLUP);
   pinMode(BAD_AI_BUTTON_PIN, INPUT_PULLUP);
 
-  for (int i = 0;i<4;i++) {
-    if (i>0)
-      delay(100);
-    digitalWrite(LED_PAGE_DOWN,HIGH);
-    delay(20);
-    digitalWrite(LED_PAGE_UP,HIGH);
-    delay(20);
-    digitalWrite(LED_RECORDING_PIN,HIGH);
-    delay(20);
-    // digitalWrite(LED_BUILTIN,HIGH);    
-    delay(50);
-    digitalWrite(LED_PAGE_DOWN,LOW);
-    delay(20);
-    digitalWrite(LED_PAGE_UP,LOW);
-    delay(20);
-    digitalWrite(LED_RECORDING_PIN,LOW);
-    delay(20);
-    // digitalWrite(LED_BUILTIN,LOW);
-    delay(20);
+  digitalWrite(LED_PAGE_DOWN,HIGH);
+  digitalWrite(LED_PAGE_UP,HIGH);
+  digitalWrite(LED_RECORDING_PIN,HIGH);
 
-  }
-
-  // initialise EEPROM
-  persConfig.setup(); 
-
-
-  // Enable the audio shield+
-  AudioMemory(280);                                      // Allocate audio processing memory. Without Metronome, only 80 is required
-  
-  // initialise speech bandpass filter (300Hz - 3400 Hz)
-  // Butterworth value Q:  “peakedness” or damping of the filter’s transition band.
-  // A higher Q gives you a sharper roll-off around the cutoff, but at the cost of a resonance peak right at that frequency.
-  // A lower Q gives a more gentle, overdamped response with no pronounced peak, but a slower transition.
-  // Configure both Biquad filters for low-pass, for a steeper roll-off
-  lowPass.setLowpass(0, 3400, 0.707);  // Channel, frequency (Hz), Q
-  highPass.setHighpass(0, 300, 0.707); 
-    
-  audioShield.enable();
-  audioShield.unmuteHeadphone();
-  audioShield.adcHighPassFilterEnable();
-  audioShield.inputSelect(AUDIO_INPUT_LINEIN);          // Use line-in (for MAX9814)
-  audioShield.volume(0.8);                              // Headphone volume 0.0 - 1.0
-  audioShield.lineInLevel(config.model.gainLevel);      // Line-in gain (0-15)
-  audioShield.dacVolume(0.8);
-
-  // enable filters for real time audio processing pipeline
+  // init audio board
   initFilters();
 
-  // initialise audio recorder
-  recorder.clear();
-  recorder.begin();
+  // init Teensy Audio board
+  init_audio();
 
   // initialise metronome
   metronome.init();
@@ -477,19 +410,26 @@ void setup() {
 
   println("AI-based voice controlled page turner V%i - h for help", version);
 
-  
+  // initialise EEPROM
+  persConfig.setup(); 
+
   // initialise SD card we use to store wrong inference results 
   init_sd_files(EI_CLASSIFIER_LABEL_COUNT, ei_classifier_inferencing_categories);
 
   // initialise bluettooth module
   init_bluetooth();
 
-    // watchdog
-   WDT_timings_t config;
+   // watchdog
+  WDT_timings_t config;
   config.trigger = 2; /* in seconds, 0->128 */
   config.timeout = 1; /* in seconds, 0->128 */
   config.callback = watchdogCallback;
   wdt.begin(config);
+
+  digitalWrite(LED_PAGE_DOWN,LOW);
+  digitalWrite(LED_PAGE_UP,LOW);
+  digitalWrite(LED_RECORDING_PIN,LOW);
+
 };
 
 void loop() {
@@ -499,12 +439,13 @@ void loop() {
   // give the metronome a change to click
   metronome.update();  
   
-  // release a pressed key       
+  // release a pressed key and turn off a page LED      
   update_keyboard_release();
   update_bluetooth_release();
+  update_page_LEDs();
 
   // check if the recording button has been pushed
-  static bool recButtonState=false;                             // state after the action, true = pushed
+  static bool recButtonState=false;                      // state after the action, true = pushed
   bool recButtonChange = checkRecButton(recButtonState); // true if turned off or turned on
 
   static bool badAIButtonState = false;
@@ -529,14 +470,16 @@ void loop() {
         // if button is still pressed, set streaming mode
         streaming_mode = true;
         recording_mode = true;
-        recorder.clear();
+        production_mode = false;
+        recorderClear();
         LOGSerial.println("start streaming");
       } else {
         // start recording mode of 1s
         digitalWrite(LED_RECORDING_PIN, HIGH);
         recording_mode = true;
         streaming_mode = false;
-        recorder.clear();
+        production_mode = false;
+        recorderClear();
         LOGSerial.println("start recording");
       }
   }
@@ -544,7 +487,6 @@ void loop() {
   // run inference on the 1s window
 
   if (production_mode) {
-     digitalWrite(LED_PAGE_UP, HIGH);
 
     static uint32_t last_time_audio_receiver = millis();
     uint32_t no_audio_for = millis() - last_time_audio_receiver;
@@ -555,10 +497,9 @@ void loop() {
 
     // read all available samples
     const int inference_freq = 50;                   // [Hz], every 20ms we run inference (one inference call is approximately 8ms)
-    static const int same_pred_count_req = 5;        // so many predictions need to be the same to count  
+    static const int same_pred_count_req = 3;        // so many predictions need to be the same to count  
 
-    if (recorder.available() > 0) {
-      digitalWrite(LED_PAGE_DOWN, HIGH);
+    if (recorderAvailable() > 0) {
 
       last_time_audio_receiver = millis();
       size_t added;
@@ -579,7 +520,7 @@ void loop() {
         String pred_label;
         float pred_certainty;
 
-        if (is_silence(audio_out_buffer, OUT_SAMPLES, 0.00015)) {
+        if (is_silence(audio_out_buffer, OUT_SAMPLES, 0.00011)) {
              // float rms = compute_rms(audio_in_buffer, OUT_SAMPLES);
              // println("rms=%f", rms);
             pred_no = silence_label_no;
@@ -625,10 +566,12 @@ void loop() {
 
               println("Send %s: %.3f", result.classification[pred_no].label, pred_certainty);
               if (next_page) {
+                  light_page_led(KEY_PAGE_DOWN);
                   send_keyboard_key(KEY_PAGE_DOWN);
                   send_bluetooth_command(KEY_PAGE_DOWN);
               }
-              if (next_page) {
+              if (prev_page) {
+                  light_page_led(KEY_PAGE_UP);
                   send_keyboard_key(KEY_PAGE_UP);
                   send_bluetooth_command(KEY_PAGE_UP);
               }
@@ -639,16 +582,14 @@ void loop() {
 
         digitalWrite(LED_RECORDING_PIN, LOW);
       } // if we run inference
-      digitalWrite(LED_PAGE_DOWN, LOW);
 
     } 
-    digitalWrite(LED_PAGE_UP, LOW);
 
   }
 
 
 //  While recording, fill rawBuffer FULL 88 200 samples:
-if (recording_mode && recorder.available()) {
+if (recording_mode && recorderAvailable()) {
 
       static size_t filter_samples_in_buffer = 0;
       size_t added_filtered_samples;
@@ -678,7 +619,7 @@ if (recording_mode && recorder.available()) {
             if (streaming_mode && !digitalRead(REC_BUTTON_PIN)) {
               // button is LOW → still pressed
               // drop any leftover in the hardware queue and start fresh
-              recorder.clear();
+              recorderClear();
               println("continuing recording next second…");
             } else {
               // button released → clean up

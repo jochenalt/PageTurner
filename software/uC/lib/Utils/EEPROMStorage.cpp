@@ -93,23 +93,23 @@ void EEPROMStorage::resetConfig() {
 
 
 void EEPROMStorage::setup() {			
-			// read configuration from EEPROM (or initialize if EEPPROM is a virgin)
-			readConfg();
+	// read configuration from EEPROM (or initialize if EEPPROM is a virgin)
+	readConfg();
 
-			// EPPROM has never been touched, initialized it
-			if (persMemory.magic_number != EEPROM_MAGIC_NUMBER) {
-				println("new EPPROM version setup from scratch");
+	// EPPROM has never been touched, initialized it
+	if (persMemory.magic_number != EEPROM_MAGIC_NUMBER) {
+		println("new EPPROM version setup from scratch");
 
-				// no one ever touched this EEPROM, initialize it
-				persMemory.setup();
-				persMemory.write();
+		// no one ever touched this EEPROM, initialize it
+		persMemory.setup();
+		persMemory.write();
 				
-				config.setup();
-				config.write();
-				persMemory.write();
-			}
+		config.setup();
+		config.write();
+		persMemory.write();
+	}
 
-			println("magic number %i, %i writes. Setup successful.",EEPROM_MAGIC_NUMBER, config.write_counter);
+	// println("magic number %i, %i writes. Setup successful.",EEPROM_MAGIC_NUMBER, config.write_counter);
 }	
 
 

@@ -93,3 +93,4 @@ software/optimised_trainingdata/
 software/trainingdata/
 software/dataset/
 software/trainingdataset/
+software/model/model.tflite
