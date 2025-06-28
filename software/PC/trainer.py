@@ -289,7 +289,8 @@ def optimise_dataset(dataset_dir=DATASET_DIR, target_sample_rate=16000):
             src_label = os.path.basename(root)
 
             # merge 'piano' into 'background'
-            out_label = 'background' if src_label == 'piano' else src_label
+            #out_label = 'background' if src_label == 'piano' else src_label
+            out_label = src_label 
 
             # initialise counter for this output label if needed
             if out_label not in label_counters:
@@ -298,8 +299,8 @@ def optimise_dataset(dataset_dir=DATASET_DIR, target_sample_rate=16000):
             # build matching folder under optimised_dataset
             relative_path = os.path.relpath(root, dataset_dir)
             # override piano → background in path
-            if src_label == 'piano':
-                relative_path = os.path.join(os.path.dirname(relative_path), 'background')
+            #if src_label == 'piano':
+            #    relative_path = os.path.join(os.path.dirname(relative_path), 'background')
             output_dir = os.path.join(OPTIMISED_DATASET_DIR, relative_path)
             os.makedirs(output_dir, exist_ok=True)
 

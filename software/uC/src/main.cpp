@@ -1,9 +1,6 @@
-#include "PageTurner_inferencing.h"
+#include "PageTurner_inferencing.h"     // needs to come first and colides with Audio.h, both cant be included in ther same file 
 #include <Arduino.h>
 #include <HardwareSerial.h>
-// #include <Audio.h> // Audio Library for Audio Shield
-#include <Wire.h>      // für Verbindung mit Audio Shield
-// #include <Audio.h>
 
 #include "SerialProtocol.h"
 #include "constants.h"
@@ -15,6 +12,7 @@
 #include "sd_files.h"
 #include "bluetooth.h"
 
+// I did not manage to enable thwe USB_HID_SERIAL mode in platformIO, somehow onley works in the Arduino IDE 
 #ifndef PLATFORMIO
 #define INC_KEYBOARD
 #endif
@@ -34,9 +32,11 @@ WDT_T4<WDT1> wdt;                                           // watchdog timer
 static int16_t audio_raw_buffer[RAW_SAMPLES];               // 44.1 kHz input buffer
 static int16_t audio_out_buffer[OUT_SAMPLES];               // 16 kHz output buffer
 
-// Modes
+// Operating Modes
 enum ModeType { MODE_NONE, MODE_PRODUCTION, MODE_RECORDING, MODE_STREAMING };
 ModeType mode = MODE_PRODUCTION;                                 // current operating mode
+
+bool punish_me = false;
 
 // Store last inference buffer for "bad AI" save
 static int16_t lastAudioBuffer[OUT_SAMPLES];
@@ -171,17 +171,14 @@ void printHelp() {
   println("Page Turner V%i", version);
   println("   h       - help");
   println("   s       - self test");
-  println("   p       - print configuration");
   println("   r       - reset");
   println("   +       - increase gain Level");
   println("   -       - decrease gain Level");
+  println("   p       - punish for all labels");
+
   println("   <space> - toggle production mode");
 }
 
-// Print current configuration
-void printConfiguration() {
-  config.model.print();
-}
 
 // Add a character to incoming command
 inline void addCmd(char ch) {
@@ -212,7 +209,14 @@ void executeManualCommand() {
         if (command == "") printHelp(); else addCmd(inputChar);
         break;
       case 'p':
-        if (command == "") printConfiguration(); else addCmd(inputChar);
+        if (command == "") {
+          punish_me = !punish_me;
+          if (punish_me)
+            println ("punishment mode on");
+          else
+            println ("punishment mode off");
+          }
+          else addCmd(inputChar);
         break;
       case 'r':
         if (command == "") delay(5000); else addCmd(inputChar);
@@ -245,10 +249,8 @@ void executeManualCommand() {
   }
 }
 
-#ifdef INC_KEYBOARD
 static uint32_t key_pressed_ms;
 static uint16_t key_pressed = millis();
-#endif
 
 // Press and hold a keyboard key
 static void send_keyboard_key(uint16_t key) {
@@ -373,8 +375,8 @@ void setup() {
 
   // Configure watchdog timer
   WDT_timings_t config;
-  config.trigger = 2;
-  config.timeout = 1;
+  config.trigger = 3;
+  config.timeout = 2;
   config.callback = watchdogCallback;
   wdt.begin(config);
 
@@ -405,21 +407,27 @@ void loop() {
   }
 
   // Start recording or streaming on button press
-  if ((mode != MODE_RECORDING) && recButtonChange && recButtonState) {
+  if ((mode != MODE_RECORDING) && (mode != MODE_STREAMING) && recButtonChange && recButtonState) {
     digitalWrite(LED_RECORDING_PIN, HIGH);
     uint32_t now = millis();
     while ((millis() - now < 1000) && recButtonState) {
-      delay(10);
+      delay(100);
       recButtonChange = checkRecButton(recButtonState);
+      wdt.feed();                    // Reset watchdog
     }
+
     if (recButtonState) {
+
+      println("start streaming");
       mode = MODE_STREAMING;
       recorderClear();
-      LOGSerial.println("start streaming");
+      delay(100);
     } else {
+      println("start recording");
       mode = MODE_RECORDING;
       recorderClear();
-      LOGSerial.println("start recording");
+      delay(100);
+
     }
   }
 
@@ -499,6 +507,12 @@ void loop() {
                 send_bluetooth_command(KEY_PAGE_UP);
               }
               last_anouncement = now;
+
+              // in punishment mode all labels are considered wrong
+              if (punish_me) {
+                save_wav_file(ei_classifier_inferencing_categories[lastLabelNo], lastLabelNo, lastAudioBuffer, OUT_SAMPLES);
+                lastLabelNo = silence_label_no;
+              }
             }
           }
         }
@@ -509,7 +523,7 @@ void loop() {
   }
 
   // Recording mode data handling
-  if ((mode == MODE_RECORDING) && recorderAvailable()) {
+  if (((mode == MODE_RECORDING) || (mode == MODE_STREAMING)) && recorderAvailable()) {
     static size_t filter_samples_in_buffer = 0;
     size_t added_filtered_samples;
     drainAudioInputBuffer(audio_raw_buffer, added_filtered_samples);
