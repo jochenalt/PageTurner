@@ -1,8 +1,8 @@
 #pragma once
 
 #include <Arduino.h>
-#include "constants.h"
 
+// contains data stored in EPPROM
 struct ModelConfigDataType {
   void print();
   void setup();
@@ -10,7 +10,6 @@ struct ModelConfigDataType {
   void println(const char* format, ...);
 
   bool modelIsPresent;
-  int modelVersion;
-  int gainLevel;
-};
-
+  int modelVersion;   
+  int gainLevel;      // line-in gain level used by Teensy Audio Board
+}; 

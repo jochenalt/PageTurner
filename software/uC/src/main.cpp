@@ -6,11 +6,11 @@
 #include "constants.h"
 #include "EEPROMStorage.h"
 #include "constants.h"
-#include "AudioFilter.h"
+#include "AudioTools.h"
 #include "Metronome.h"
 #include "Watchdog_t4.h"
-#include "sd_files.h"
-#include "bluetooth.h"
+#include "SDFiles.h"
+#include "Bluetooth.h"
 
 // I did not manage to enable thwe USB_HID_SERIAL mode in platformIO, somehow onley works in the Arduino IDE 
 #ifndef PLATFORMIO
@@ -29,21 +29,22 @@ Metronome metronome;                                        // metronome instanc
 WDT_T4<WDT1> wdt;                                           // watchdog timer
 
 // Audio buffers
-static int16_t audio_raw_buffer[RAW_SAMPLES];               // 44.1 kHz input buffer
-static int16_t audio_out_buffer[OUT_SAMPLES];               // 16 kHz output buffer
+static int16_t audioRawBuffer[RAW_SAMPLES];               // 44.1 kHz input buffer
+static int16_t audioOutBuffer[OUT_SAMPLES];               // 16 kHz output buffer
 
 // Operating Modes
 enum ModeType { MODE_NONE, MODE_PRODUCTION, MODE_RECORDING, MODE_STREAMING };
 ModeType mode = MODE_PRODUCTION;                                 // current operating mode
 
-bool punish_me = false;
+// if set, every label is considered wrong and save (good for getting "background" and "unknown" samples)
+bool punishMeConstantly = false;
 
-// Store last inference buffer for "bad AI" save
+// Store last inference buffer, in case the "BAD AI" button is pressed and the audio second needs to be saved
 static int16_t lastAudioBuffer[OUT_SAMPLES];
 static uint16_t lastLabelNo = 0;
 
 // Compute RMS of a sample buffer
-float compute_rms(const int16_t* samples, size_t len) {
+float computeRMS(const int16_t* samples, size_t len) {
   uint64_t acc = 0;
   for (size_t i = 0; i < len; ++i) {
     float y = samples[i] / 32768.0f;   // normalize to [-1..1]
@@ -54,8 +55,8 @@ float compute_rms(const int16_t* samples, size_t len) {
 }
 
 // Check if buffer is below silence threshold
-bool is_silence(const int16_t* samples, size_t len, float thresh) {
-  return compute_rms(samples, len) < thresh;
+bool isSilence(const int16_t* samples, size_t len, float thresh) {
+  return computeRMS(samples, len) < thresh;
 }
 
 // Callback for inference data access
@@ -66,7 +67,7 @@ static int get_data(size_t offset, size_t length, float *out_ptr) {
 }
 
 // Run model inference on audio buffer
-void run_inference(int16_t buffer[], size_t samples, ei_impulse_result_t &result, int &pred_no) {
+void runInference(int16_t buffer[], size_t samples, ei_impulse_result_t &result, int &pred_no) {
   // Prepare signal for classifier
   get_data_buffer_ptr = buffer;
   signal_t signal;
@@ -152,7 +153,7 @@ void gainUp() {
   if (config.model.gainLevel > 15)
     config.model.gainLevel = 15;
   println("increase gain to %i", config.model.gainLevel);
-  setGainLevel(config.model.gainLevel);
+  set_gain_level(config.model.gainLevel);
 }
 
 // Decrease input gain
@@ -163,7 +164,7 @@ void gainDown() {
   if (config.model.gainLevel > 15)
     config.model.gainLevel = 15;
   println("decrease gain to %i", config.model.gainLevel);
-  setGainLevel(config.model.gainLevel);
+  set_gain_level(config.model.gainLevel);
 }
 
 // Print help menu
@@ -181,14 +182,14 @@ void printHelp() {
 
 
 // Add a character to incoming command
-inline void addCmd(char ch) {
+void addCmd(char ch) {
   if ((ch != 10) && (ch != 13))
     command += ch;
   commandPending = true;
 }
 
 // Clear current command buffer
-inline void emptyCmd() {
+void emptyCmd() {
   command = "";
   commandPending = false;
 }
@@ -210,8 +211,8 @@ void executeManualCommand() {
         break;
       case 'p':
         if (command == "") {
-          punish_me = !punish_me;
-          if (punish_me)
+          punishMeConstantly = !punishMeConstantly;
+          if (punishMeConstantly)
             println ("punishment mode on");
           else
             println ("punishment mode off");
@@ -232,7 +233,7 @@ void executeManualCommand() {
           if (mode !=  MODE_PRODUCTION) { 
             LOGSerial.println("production mode on");
             mode = MODE_PRODUCTION;
-            recorderClear();
+            clearAudioBuffer();
           } else {
             mode = MODE_NONE;
             LOGSerial.println("production mode off");
@@ -253,7 +254,7 @@ static uint32_t key_pressed_ms;
 static uint16_t key_pressed = millis();
 
 // Press and hold a keyboard key
-static void send_keyboard_key(uint16_t key) {
+static void sendKeyboardKey(uint16_t key) {
 #ifdef INC_KEYBOARD
   key_pressed = key;
   key_pressed_ms = millis();
@@ -262,7 +263,7 @@ static void send_keyboard_key(uint16_t key) {
 }
 
 // Release held keyboard key after short delay
-static void update_keyboard_release() {
+static void updateKeyboardRelease() {
 #ifdef INC_KEYBOARD
   if (millis() - key_pressed_ms < 100) {
     Keyboard.release(key_pressed);
@@ -272,50 +273,45 @@ static void update_keyboard_release() {
 }
 
 // Turn on page turn LED
-static uint32_t page_led_on_ms = millis();
-void light_page_led(uint16_t key) {
-  page_led_on_ms = millis();
+static uint32_t pageLEDOnms = millis();
+void turnOnPageLED(uint16_t key) {
+  pageLEDOnms = millis();
   if (key == KEY_PAGE_DOWN) digitalWrite(LED_PAGE_DOWN, HIGH);
   if (key == KEY_PAGE_UP)   digitalWrite(LED_PAGE_UP, HIGH);
 }
 
 // Turn off page LEDs after timeout
-void update_page_LEDs() {
-  if (millis() - page_led_on_ms < 1000) {
+void updatePageLED() {
+  if (millis() - pageLEDOnms < 1000) {
     digitalWrite(LED_PAGE_DOWN, LOW);
     digitalWrite(LED_PAGE_UP,   LOW);
-    page_led_on_ms = 0;
-  }
-}
-
-// Send audio and inference data packet
-void send_audio_packet(int16_t* audioBuf, size_t samples, ei_impulse_result_t &result) {
-  send_packet(Serial, CMD_AUDIO_RECORDING, (uint8_t*)audioBuf, samples * BYTES_PER_SAMPLE);
-
-  // Prepare sample count and classification scores
-  size_t class_count = EI_CLASSIFIER_LABEL_COUNT;
-  size_t buffer_len = sizeof(samples) + sizeof(class_count) + class_count * sizeof(float);
-  uint8_t buffer[buffer_len];
-  size_t offset = 0;
-
-  memcpy(&buffer[offset], &samples, sizeof(samples));
-  offset += sizeof(samples);
-  memcpy(&buffer[offset], &class_count, sizeof(class_count));
-  offset += sizeof(class_count);
-
-  for (size_t i = 0; i < class_count; i++) {
-    float score = result.classification[i].value;
-    memcpy(&buffer[offset], &score, sizeof(score));
-    offset += sizeof(score);
+    pageLEDOnms = 0;
   }
 
-  int cmd = (mode == MODE_STREAMING) ? CMD_AUDIO_STREAM : CMD_SAMPLE_COUNT;
-  send_packet(Serial, cmd, (uint8_t*)buffer, buffer_len);
 }
+
+// let the recording light lethargically blink
+void updateModeLED() {
+  if ((mode == MODE_RECORDING) || (mode == MODE_STREAMING)) {
+    digitalWrite(LED_RECORDING_PIN, ANALOG_WRITE_MAX);
+  }
+  else 
+    if (mode == MODE_PRODUCTION) {
+      // lethargic blinking, like an "ON AIR" sign
+      int val = ((2000 - millis() % 2000) * ANALOG_WRITE_MAX) / 2000;
+      analogWrite(LED_RECORDING_PIN, val);
+   } else {
+      analogWrite(LED_RECORDING_PIN,0 );
+   }
+}
+
 
 // Watchdog callback function
 void watchdogCallback() {
-  println("watchdog woke up");
+    digitalWrite(LED_RECORDING_PIN, HIGH);
+    digitalWrite(LED_PAGE_DOWN, HIGH);
+    digitalWrite(LED_PAGE_UP, HIGH);
+    println("watchdog alerted");
 }
 
 // Label indices for special commands
@@ -326,7 +322,7 @@ uint16_t zurueck_label_no = EI_CLASSIFIER_LABEL_COUNT;
 uint16_t back_label_no    = EI_CLASSIFIER_LABEL_COUNT;
 
 // Initialize indices of command labels
-void init_special_labels() {
+void initSpecialLabels() {
   String targets[] = { "silence", "weiter", "next", "zurück", "back" };
   uint16_t* results[] = { &silence_label_no, &weiter_label_no, &next_label_no, &zurueck_label_no, &back_label_no };
 
@@ -340,59 +336,75 @@ void init_special_labels() {
   }
 }
 
-// Arduino setup function
 void setup() {
   LOGSerial.begin(115200);
   Serial.begin(115200);
 
   // Initialize Bluetooth before other peripherals
-  init_bluetooth_baudrate();
+  initBluetoothBaudrate();
 
   // Configure pins
   pinMode(LED_PAGE_DOWN, OUTPUT);
   pinMode(LED_RECORDING_PIN, OUTPUT);
   pinMode(LED_PAGE_UP, OUTPUT);
+  pinMode(LED_ON_PIN, OUTPUT);
+
   pinMode(REC_BUTTON_PIN, INPUT_PULLUP);
   pinMode(BAD_AI_BUTTON_PIN, INPUT_PULLUP);
-
+  pinMode(SWITCH_ON_OFF_PIN, INPUT_PULLUP);
+  
   digitalWrite(LED_PAGE_DOWN, HIGH);
   digitalWrite(LED_PAGE_UP, HIGH);
-  digitalWrite(LED_RECORDING_PIN, HIGH);
+  digitalWrite(LED_RECORDING_PIN,HIGH);
+  digitalWrite(LED_ON_PIN, HIGH);
 
   // Initialize audio and metronome
-  initFilters();
-  init_audio();
+  initAudioTools();
   metronome.init();
   metronome.setTempo(120);
   metronome.turn(false);
 
   // Prepare special labels and peripherals
-  init_special_labels();
+  initSpecialLabels();
   println("AI-based voice controlled page turner V%i - h for help", version);
   persConfig.setup();
-  init_sd_files(EI_CLASSIFIER_LABEL_COUNT, ei_classifier_inferencing_categories);
-  init_bluetooth();
+  initSDFiles(EI_CLASSIFIER_LABEL_COUNT, ei_classifier_inferencing_categories);
+  initBluetooth();
 
-  // Configure watchdog timer
+  // Configure watchdog timer to 3seconds
   WDT_timings_t config;
   config.trigger = 3;
   config.timeout = 2;
   config.callback = watchdogCallback;
   wdt.begin(config);
 
+  // turn off all lights
   digitalWrite(LED_PAGE_DOWN, LOW);
   digitalWrite(LED_PAGE_UP, LOW);
   digitalWrite(LED_RECORDING_PIN, LOW);
 }
 
-// Arduino main loop
+
 void loop() {
   wdt.feed();                    // Reset watchdog
-  metronome.update();            // Update metronome click
-  update_keyboard_release();     // Release key if needed
-  update_bluetooth_release();    // Release Bluetooth key if needed
-  update_page_LEDs();            // Update page LED states
 
+  // if I am turned off, put me to sleep
+  if (digitalRead(SWITCH_ON_OFF_PIN) == LOW) {
+    digitalWrite(LED_PAGE_DOWN, LOW);
+    digitalWrite(LED_PAGE_UP, LOW);
+    digitalWrite(LED_RECORDING_PIN, LOW);
+    digitalWrite(LED_ON_PIN, LOW);
+    delay(1000);
+  }
+
+  metronome.update();            // Update metronome click
+  updateKeyboardRelease();     // Release key if needed
+  updateBluetoothRelease();    // Release Bluetooth key if needed
+  updatePageLED();            // Update page LED states
+
+  // in streaming mode, the recording LED is lethargically blinking
+  updateModeLED();
+  
   // Check button states
   static bool recButtonState = false;
   bool recButtonChange = checkRecButton(recButtonState);
@@ -401,14 +413,21 @@ void loop() {
 
   // Handle bad AI save
   if (badAIbuttonChange && badAIButtonState && (lastLabelNo != silence_label_no)) {
-    println("saving wrong label");
-    save_wav_file(ei_classifier_inferencing_categories[lastLabelNo], lastLabelNo, lastAudioBuffer, OUT_SAMPLES);
-    lastLabelNo = silence_label_no;
+    println("I am sorry, I am saving the bad label on SD");
+    digitalWrite(LED_PAGE_UP, HIGH);
+    digitalWrite(LED_PAGE_UP, HIGH);
+    digitalWrite(LED_RECORDING_PIN, HIGH);
+
+    saveWavFile(ei_classifier_inferencing_categories[lastLabelNo], lastLabelNo, lastAudioBuffer, OUT_SAMPLES);
+    lastLabelNo = silence_label_no; // save label  one only once
+
+    digitalWrite(LED_PAGE_UP, HIGH);
+    digitalWrite(LED_PAGE_UP, HIGH);
+    digitalWrite(LED_RECORDING_PIN, HIGH);
   }
 
   // Start recording or streaming on button press
   if ((mode != MODE_RECORDING) && (mode != MODE_STREAMING) && recButtonChange && recButtonState) {
-    digitalWrite(LED_RECORDING_PIN, HIGH);
     uint32_t now = millis();
     while ((millis() - now < 1000) && recButtonState) {
       delay(100);
@@ -417,17 +436,14 @@ void loop() {
     }
 
     if (recButtonState) {
-
       println("start streaming");
       mode = MODE_STREAMING;
-      recorderClear();
+      clearAudioBuffer();
       delay(100);
     } else {
       println("start recording");
       mode = MODE_RECORDING;
-      recorderClear();
-      delay(100);
-
+      clearAudioBuffer();
     }
   }
 
@@ -440,21 +456,20 @@ void loop() {
       last_time_audio_receiver = millis();
     }
 
-    const int inference_freq = 50;                // inference frequency [Hz]
-    static const int same_pred_count_req = 3;     // so many equal predictions until it counts 
+    const int inferenceFreq = 50;              // inference frequency [Hz]
+    static const int samePredCountReq = 3;     // so many equal predictions until it counts 
 
-    if (recorderAvailable() > 0) {
+    if (isAudioDataAvailable() > 0) {
       last_time_audio_receiver = millis();
       size_t added;
-      drainAudioInputBuffer(audio_raw_buffer, added);
+      drainAudioData(audioRawBuffer, added);
       size_t filteredbytes;
-      processAudioBuffer(audio_raw_buffer, RAW_SAMPLES, audio_out_buffer, filteredbytes);
+      processAudioBuffer(audioRawBuffer, RAW_SAMPLES, audioOutBuffer, filteredbytes);
 
       uint32_t now = millis();
       static uint32_t last_inference_time = millis();
-      if (now - last_inference_time > 1000 / inference_freq) {
+      if (now - last_inference_time > 1000 / inferenceFreq) {
         last_inference_time = now;
-        digitalWrite(LED_RECORDING_PIN, HIGH);
 
         ei_impulse_result_t result = { 0 };
         int pred_no;
@@ -462,12 +477,12 @@ void loop() {
         float pred_certainty;
 
         // Silence detection
-        if (is_silence(audio_out_buffer, OUT_SAMPLES, 0.00011)) {
+        if (isSilence(audioOutBuffer, OUT_SAMPLES, 0.00011)) {
           pred_no = silence_label_no;
           pred_label = "silence";
           pred_certainty = 1.0;
         } else {
-          run_inference(audio_out_buffer, OUT_SAMPLES, result, pred_no);
+          runInference(audioOutBuffer, OUT_SAMPLES, result, pred_no);
           pred_label = String(result.classification[pred_no].label);
           pred_certainty = result.classification[pred_no].value;
         }
@@ -484,71 +499,79 @@ void loop() {
           last_pred_no = pred_no;
         }
 
-        if (same_pred_count == same_pred_count_req) {
-          bool next_page = (pred_no == weiter_label_no);
-          bool prev_page = (pred_no == zurueck_label_no);
+        if (same_pred_count == samePredCountReq) {
+          bool next_page = (pred_no == weiter_label_no); // || ((pred_no == next_label_no)
+          bool prev_page = (pred_no == zurueck_label_no); // || (pred_no == back_label_no)
 
           static int32_t last_anouncement = millis();
           int32_t now = millis();
           if (next_page || prev_page) {
             if (now - last_anouncement > debounce_anouncement_ms) {
-              memcpy(lastAudioBuffer, audio_out_buffer, OUT_SAMPLES * sizeof(audio_out_buffer[0]));
+              memcpy(lastAudioBuffer, audioOutBuffer, OUT_SAMPLES * sizeof(audioOutBuffer[0]));
               lastLabelNo = pred_no;
 
               println("Send %s: %.3f", result.classification[pred_no].label, pred_certainty);
               if (next_page) {
-                light_page_led(KEY_PAGE_DOWN);
-                send_keyboard_key(KEY_PAGE_DOWN);
-                send_bluetooth_command(KEY_PAGE_DOWN);
+                turnOnPageLED(KEY_PAGE_DOWN);
+                sendKeyboardKey(KEY_PAGE_DOWN);
+                sendBluetoothKey(KEY_PAGE_DOWN);
               }
               if (prev_page) {
-                light_page_led(KEY_PAGE_UP);
-                send_keyboard_key(KEY_PAGE_UP);
-                send_bluetooth_command(KEY_PAGE_UP);
+                turnOnPageLED(KEY_PAGE_UP);
+                sendKeyboardKey(KEY_PAGE_UP);
+                sendBluetoothKey(KEY_PAGE_UP);
               }
               last_anouncement = now;
 
               // in punishment mode all labels are considered wrong
-              if (punish_me) {
-                save_wav_file(ei_classifier_inferencing_categories[lastLabelNo], lastLabelNo, lastAudioBuffer, OUT_SAMPLES);
+              if (punishMeConstantly) {
+                saveWavFile(ei_classifier_inferencing_categories[lastLabelNo], lastLabelNo, lastAudioBuffer, OUT_SAMPLES);
                 lastLabelNo = silence_label_no;
               }
             }
           }
         }
-
-        digitalWrite(LED_RECORDING_PIN, LOW);
       }
     }
   }
 
   // Recording mode data handling
-  if (((mode == MODE_RECORDING) || (mode == MODE_STREAMING)) && recorderAvailable()) {
+  if (((mode == MODE_RECORDING) || (mode == MODE_STREAMING)) && isAudioDataAvailable()) {
     static size_t filter_samples_in_buffer = 0;
     size_t added_filtered_samples;
-    drainAudioInputBuffer(audio_raw_buffer, added_filtered_samples);
+    drainAudioData(audioRawBuffer, added_filtered_samples);
     filter_samples_in_buffer += added_filtered_samples;
     size_t filteredbytes;
 
     if (filter_samples_in_buffer >= RAW_SAMPLES) {
-      processAudioBuffer(audio_raw_buffer, RAW_SAMPLES, audio_out_buffer, filteredbytes);
+      processAudioBuffer(audioRawBuffer, RAW_SAMPLES, audioOutBuffer, filteredbytes);
       size_t totalBytes = filteredbytes * BYTES_PER_SAMPLE;
       println("recording of %u samples (%u bytes) sent", filteredbytes, totalBytes);
 
       ei_impulse_result_t result = { 0 };
       int pred_no;
-      run_inference(audio_out_buffer, filteredbytes, result, pred_no);
-      send_audio_packet(audio_out_buffer, filteredbytes, result);
+      runInference(audioOutBuffer, filteredbytes, result, pred_no);
+
+      // pack result scores in an array to send it to PC
+      size_t class_count = EI_CLASSIFIER_LABEL_COUNT;
+      float scored[EI_CLASSIFIER_LABEL_COUNT];
+      for (size_t i = 0; i < class_count; i++) {
+        scored[i] = result.classification[i].value;
+      }
+
+      // send the audio and the predicitons it to the PC
+      sendAudioPacket( (mode == MODE_STREAMING) ? CMD_AUDIO_STREAM : CMD_AUDIO_SAMPLE,
+                          audioOutBuffer, filteredbytes, scored, EI_CLASSIFIER_LABEL_COUNT);
       Serial.flush();
 
       filter_samples_in_buffer = 0;
 
       if ((mode == MODE_STREAMING) && !digitalRead(REC_BUTTON_PIN)) {
-        recorderClear();
+        clearAudioBuffer();
+        digitalWrite(LED_RECORDING_PIN, LOW);  // 
         println("continuing recording next second…");
       } else {
         mode = MODE_NONE;
-        digitalWrite(LED_RECORDING_PIN, LOW);
         println("recording finished");
       }
     }

@@ -48,6 +48,8 @@ DECLARE_SAFE_PIN(LOGSerial_TX_PIN,1);
 DECLARE_SAFE_PIN(LED_PAGE_UP,3);
 DECLARE_SAFE_PIN(LED_PAGE_DOWN,2);
 DECLARE_SAFE_PIN(LED_RECORDING_PIN,4);
+DECLARE_SAFE_PIN(LED_ON_PIN,22);
+
 
 // Switch on/off
 DECLARE_SAFE_PIN(SWITCH_ON_OFF_PIN,15); // if grounded turn me off
@@ -71,14 +73,19 @@ DECLARE_SAFE_PIN(METRONOME_LED_PIN,9);
 #define SD_SPI_SCK 13
 #define SDCARD_CS_PIN SD_SPI_CS
 
+// --- Packet Framing Constants ---
+#define PACKET_MAGIC_HI 0xAB
+#define PACKET_MAGIC_LO 0xCD
+#define PACKET_MAX_PAYLOAD 512
+
 // commands in the header of communication packets 
 #define CMD_AUDIO_RECORDING  0xA1       // 1s of audio recording being sent to pyhton
-#define CMD_SAMPLE_COUNT     0xA2       // total number of audio samples (a 2 bytes) being sent in the CMD_AUDIO_SNIPPET command.
+#define CMD_AUDIO_SAMPLE     0xA2       // total number of audio samples (a 2 bytes) being sent in the CMD_AUDIO_SNIPPET command.
 #define CMD_AUDIO_STREAM     0xA3       // audio snippet of a permanend audio stream
-#define AUDIO_BLOCK_SAMPLES  128
+
 // parameter for recording
 #define RECORD_SECONDS 1
-#define INPUT_SAMPLE_RATE 44100 // [Hz]
+#define INPUT_SAMPLE_RATE  44100 // [Hz]
 #define OUTPUT_SAMPLE_RATE 16000 // [Hz]
 #define BYTES_PER_SAMPLE 2
 #define RAW_SAMPLES      (RECORD_SECONDS * INPUT_SAMPLE_RATE)   // 44100
@@ -94,3 +101,5 @@ DECLARE_SAFE_PIN(BLUEFRUIT_RX,16);
 DECLARE_SAFE_PIN(BLUEFRUIT_TX,17);
 #define BLUETOOTH_BAUDRATE 115200
 
+
+#define ANALOG_WRITE_MAX 255

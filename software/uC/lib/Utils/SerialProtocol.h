@@ -1,16 +1,11 @@
 #pragma once
+
 #include <Arduino.h>
-#include "constants.h"
 
-// --- Packet Framing Constants ---
-#define PACKET_MAGIC_HI 0xAB
-#define PACKET_MAGIC_LO 0xCD
-#define PACKET_MAX_PAYLOAD 512
-
-// --- CRC Functions ---
-uint8_t compute_crc8(uint8_t cmd, uint16_t len, const uint8_t* data);
-uint32_t compute_crc32(const uint8_t* data, uint32_t len);
-
-// --- Framed Packet API ---
-bool read_packet(Stream& s, uint8_t& cmd, uint8_t* payload, uint16_t& len);
-void send_packet(Stream& s, uint8_t cmd, const uint8_t* payload, uint16_t len);
+// send an audio snippet to the PC via Serial.
+// cmd = CMD_AUDIO_STREAM or CMD_AUDIO_SAMPLE
+// audioBuf: 1s of 16kHz audio, mono 16 bit pcm
+// samples: no of entries in audioBuf
+// scores: outcome of inference values in the order of the labels
+// score_count: no of entries in scores
+void sendAudioPacket(uint16_t cmd, int16_t* audioBuf, size_t samples, float scores[], size_t score_count);

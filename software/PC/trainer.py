@@ -36,7 +36,7 @@ PACKET_MAX_PAYLOAD = 512
 
 # === Command IDs from Teensy ===
 CMD_AUDIO_RECORDING = 0xA1
-CMD_SAMPLE_COUNT    = 0xA2
+CMD_AUDIO_SAMPLE    = 0xA2
 CMD_AUDIO_STREAM    = 0xA3
 
 DATASET_DIR             = "../dataset"
@@ -795,9 +795,9 @@ def main():
                     # remember current label (could be global `label` from keyboard)
                     stream_label = label
                     continue
-                elif cmd == CMD_SAMPLE_COUNT:
+                elif cmd == CMD_AUDIO_SAMPLE:
                     # you can still handle final inference here if you need
-                    # but for pure streaming saves, CMD_SAMPLE_COUNT means “end”
+                    # but for pure streaming saves, CMD_AUDIO_SAMPLE means “end”
                     # trigger the same save logic immediately:
                     if streaming:
                         if stream_label is not None:
@@ -809,7 +809,7 @@ def main():
                     stream_buffer.clear()
                     stream_label = None
 
-                    print(f"❌ CMD_SAMPLE_COUNT payload length: {len(payload)}")
+                    print(f"❌ CMD_AUDIO_SAMPLE payload length: {len(payload)}")
     
                     total_samples = struct.unpack('<I', payload[2:6])[0]
                     print(f"📦 total_samples: {total_samples}")
@@ -855,11 +855,12 @@ def main():
  
                     # 5a) if the user pre-selected a ground-truth label, only save on mismatch
                     if label is not None:
-                        if pred_teensy_label != label:
-                            save_wav(audio_data, label)
-                            print(f"✅ MISMATCH! Saved under ground-truth '{label}'")
-                        else:
-                            print("✅ MATCH: skipping save.")
+                        save_wav(audio_data, label)
+                        #if pred_teensy_label != label:
+                        #    save_wav(audio_data, label)
+                        #    print(f"✅ MISMATCH! Saved under ground-truth '{label}'")
+                        #else:
+                        #    print("✅ MATCH: skipping save.")
                     # 5b) otherwise offer optional annotation
                     else:
                         print("Press 0–{n} to annotate & save, or wait 3 s to skip.".format(n=len(LABELS)-1))
@@ -891,7 +892,7 @@ def main():
 
                 elif cmd == CMD_AUDIO_RECORDING:
                     # store audio recording in a buffer. It is only saved if the 
-                    # following CMD_SAMPLE_COUNT gives the right number. Othrwise this
+                    # following CMD_AUDIO_SAMPLE gives the right number. Othrwise this
                     # buffer is overwritten next time
                     chunk_idx = payload[0]
                     chunk_total = payload[1]

@@ -23,5 +23,3 @@ private:
 };
 
 
-
-extern void println(const char* format, ...);
