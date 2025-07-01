@@ -43,6 +43,12 @@ bool punishMeConstantly = false;
 static int16_t lastAudioBuffer[OUT_SAMPLES];
 static uint16_t lastLabelNo = 0;
 
+static uint32_t last_time_audio_receiver = millis();
+
+void resetAudioWatchdog() {
+  last_time_audio_receiver = millis();
+}
+
 // Compute RMS of a sample buffer
 float computeRMS(const int16_t* samples, size_t len) {
   uint64_t acc = 0;
@@ -233,6 +239,7 @@ void executeManualCommand() {
           if (mode !=  MODE_PRODUCTION) { 
             LOGSerial.println("production mode on");
             mode = MODE_PRODUCTION;
+            resetAudioWatchdog();
             clearAudioBuffer();
           } else {
             mode = MODE_NONE;
@@ -382,6 +389,9 @@ void setup() {
   digitalWrite(LED_PAGE_DOWN, LOW);
   digitalWrite(LED_PAGE_UP, LOW);
   digitalWrite(LED_RECORDING_PIN, LOW);
+
+  // start measuring the time without audio
+  resetAudioWatchdog();
 }
 
 
@@ -449,11 +459,10 @@ void loop() {
 
   // Production (inference) mode processing
   if (mode == MODE_PRODUCTION) {
-    static uint32_t last_time_audio_receiver = millis();
     uint32_t no_audio_for = millis() - last_time_audio_receiver;
     if (no_audio_for > 200) {
       println("no audio for %ums", no_audio_for);
-      last_time_audio_receiver = millis();
+      resetAudioWatchdog();
     }
 
     const int inferenceFreq = 50;              // inference frequency [Hz]

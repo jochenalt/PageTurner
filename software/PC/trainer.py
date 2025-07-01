@@ -60,6 +60,10 @@ audio_data = bytearray()  # outside of main()
 # for mic mode:
 mic_mode = False
 
+# currently used Teensy port and serial connection
+port = None
+ser = None
+
 # === CRC ===
 def compute_crc8(cmd, length, payload):
     crc = cmd ^ (length >> 8) ^ (length & 0xFF)
@@ -71,20 +75,56 @@ def compute_crc8(cmd, length, payload):
 TEENSY_VID = 0x16C0
 TEENSY_PID = 0x0483
 def find_teensy_port():
-    ports = list(serial.tools.list_ports.comports())
-    print("Available ports:")
-    for p in ports:
-        print(f" - {p.device} | {p.description} | VID:PID={p.vid:04X}:{p.pid:04X}")
-    # 1) match by VID/PID
-    for p in ports:
-        if p.vid == TEENSY_VID and p.pid == TEENSY_PID:
-            return p.device
-    # 2) fallback: match Linux naming (/dev/ttyACM* or /dev/ttyUSB*)
-    for p in ports:
-        if p.device.startswith(('/dev/ttyACM', '/dev/ttyUSB')):
-            return p.device
-    print("❌ No Teensy port found.")
-    return None
+    try:
+
+        ports = list(serial.tools.list_ports.comports())
+        #for p in ports:
+        #    print(f" - {p.device} | {p.description} | VID:PID={p.vid:04X}:{p.pid:04X}")
+        # 1) match by VID/PID
+        for p in ports:
+            if p.vid == TEENSY_VID and p.pid == TEENSY_PID:
+                return p.device
+        # 2) fallback: match Linux naming (/dev/ttyACM* or /dev/ttyUSB*)
+        for p in ports:
+            if p.device.startswith(('/dev/ttyACM', '/dev/ttyUSB')):
+                return p.device
+        return None
+    except Exception as e:
+        print(f"failed to read ports {e}")
+
+def connect_teensy():
+    """Try to find & open the Teensy port. Return Serial or None.
+    Prints a message only when the port connection status changes."""
+    # Initialize the static attribute on first call
+    global port, ser
+    if not hasattr(connect_teensy, "_prev_port"):
+        connect_teensy._prev_port = None
+
+    port = find_teensy_port()
+
+    # On any change of port vs. last time, log it
+    if port != connect_teensy._prev_port:
+        if port:
+            try:
+                print(f"📡 Starting serial connection to  {port}...")
+                ser = serial.Serial(port, 115200, timeout=1)
+                print(f"📡 Listening on teensy port {port}...")
+            except serial.SerialException as e:
+                print(f"⚠️ Failed to open serial port: {e}")
+                ser = None
+                port = None
+        else:
+            print("⚠️  Lost teensy connection.")
+        connect_teensy._prev_port = port
+
+def ser_is_waiting():
+    global ser;
+    try:
+        if ser and ser.in_waiting:
+            return True;
+    except Exception as e:
+        return False;
+
 
 # === Directory Setup ===
 def create_dataset_dirs(base=DATASET_DIR):
@@ -645,6 +685,12 @@ def run_pc_mic_mode(input_device=None,
 
 def print_menu():
     """Show the list of commands to the user."""
+    global port
+    if port == None:
+        print(f"Teensy not connected {port}")
+    else:
+        print(f"Listening to Teensy port {port}")
+
     print("Commands:")
     for i, l in enumerate(LABELS):
         print(f" {i} - record label '{l}'")
@@ -659,6 +705,8 @@ def print_menu():
 # === Main Program ===
 
 def main():
+    global port, ser
+
     kbhit.init_kbhit()
     try:
         # Eval-Mode State
@@ -670,30 +718,10 @@ def main():
 
         create_dataset_dirs()
         create_optimised_dataset_dirs()
-        port = find_teensy_port()
+        port = None
         ser = None
 
-        if port:
-            try:
-                ser = serial.Serial(port, 115200, timeout=1)
-                print(f"📡 Listening on {port}...")
-            except serial.SerialException as e:
-                print(f"⚠️ Failed to open serial port: {e}")
-                ser = None
-        else:
-            print("⚠️ No Teensy connected, recording disabled.")
-
-
-        if port:
-            ser = serial.Serial(port, 115200, timeout=1)
-            print(f"📡 Listening on {port}...")
-        else:
-            ser = None
-            print("⚠️ No Teensy connected, recording disabled.")
-
-
-        print(f"📡 Listening on {port}...")
-
+        connect_teensy();
         print_menu();
 
         label = None
@@ -705,6 +733,9 @@ def main():
         STREAM_TIMEOUT = 1.5  # seconds to wait for the “next” snippet
         stream_buffer.clear()
         while True:
+            # try to get a connection
+            connect_teensy();
+
             # check keyboard without blocking
             if kbhit.kbhit():
                 key = kbhit.getch()
@@ -771,7 +802,8 @@ def main():
 
 
             # look for packets
-            if ser and ser.in_waiting:
+
+            if ser_is_waiting():
                 result = read_packet(ser)
                 if not result:
                     continue
@@ -868,7 +900,7 @@ def main():
                             print(f"  {i}: {l}")
                         start = time.time()
                         choice = None
-                        while time.time() - start < 3 and not ser.in_waiting:
+                        while time.time() - start < 3 and not ser_is_waiting():
                             if kbhit.kbhit():
                                 ch = kbhit.getch()
                                 if ch.isdigit():
@@ -876,7 +908,7 @@ def main():
                                     if 0 <= i < len(LABELS):
                                         choice = i
                                 break
-                        if  ser.in_waiting:
+                        if  ser_is_waiting():
                             print(" no time, packet gets in")
                         if  time.time() - start >= 3:
                             print(" Timout, you missed your chance")

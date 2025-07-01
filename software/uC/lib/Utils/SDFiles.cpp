@@ -2,7 +2,7 @@
 #include "constants.h"
 #include "SDFiles.h"
 
-static size_t labelCounters[8] = {0};
+static size_t labelCounters[10] = {0};
 bool sd_card_present = false;
 size_t no_of_labels = 0;
 
@@ -80,7 +80,7 @@ int identifyNextFileID(const char* label) {
 
 void initSDFiles(size_t nol, const char* categories[]) {
     no_of_labels = nol;
-    if (no_of_labels > sizeof(labelCounters)) {
+    if (no_of_labels > sizeof(labelCounters)/sizeof(size_t)) {
         println("category array too small");
         return;
     }
