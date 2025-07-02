@@ -218,8 +218,10 @@ void executeManualCommand() {
       case 'p':
         if (command == "") {
           punishMeConstantly = !punishMeConstantly;
-          if (punishMeConstantly)
+          if (punishMeConstantly) {
             println ("punishment mode on");
+            mode = MODE_PRODUCTION;
+          }
           else
             println ("punishment mode off");
           }
@@ -465,7 +467,7 @@ void loop() {
       resetAudioWatchdog();
     }
 
-    const int inferenceFreq = 50;              // inference frequency [Hz]
+    const int inferencePeriod  = 25;           // [ms] time between two inference calls
     static const int samePredCountReq = 3;     // so many equal predictions until it counts 
 
     if (isAudioDataAvailable() > 0) {
@@ -477,7 +479,7 @@ void loop() {
 
       uint32_t now = millis();
       static uint32_t last_inference_time = millis();
-      if (now - last_inference_time > 1000 / inferenceFreq) {
+      if (now - last_inference_time > inferencePeriod) {
         last_inference_time = now;
 
         ei_impulse_result_t result = { 0 };

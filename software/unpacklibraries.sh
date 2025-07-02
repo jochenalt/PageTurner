@@ -43,7 +43,7 @@ if [[ -n "$CPP_ZIP" ]]; then
   CPP_DIR="./PC/ei_cpp_library"
   mkdir -p "$CPP_DIR"
   echo "Unpacking C++ library '$CPP_ZIP' into '$CPP_DIR'…"
-  unzip -q "$CPP_ZIP" -d "$CPP_DIR"
+  unzip -qo "$CPP_ZIP" -d "$CPP_DIR"
 fi
 
 # Unpack Arduino library (only src/)
@@ -67,7 +67,7 @@ if [[ -n "$ARDUINO_ZIP" ]]; then
 
   echo "Extracting only the src/ folder from '$ARDUINO_ZIP' into '$ARDUINO_DIR'…"
   TMPDIR=$(mktemp -d)
-  unzip -q "$ARDUINO_ZIP" -d "$TMPDIR"
+  unzip -qo "$ARDUINO_ZIP" -d "$TMPDIR"
 
   # find the one top-level directory that contains src/
   found=0
