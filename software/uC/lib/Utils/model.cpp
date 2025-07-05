@@ -25,5 +25,5 @@ void ModelConfigDataType::print() {
 void ModelConfigDataType::setup() {
 	modelIsPresent = false;
   	modelVersion = 0;
-    gainLevel = 5;
+    gainLevel = 3;
 }

@@ -6,6 +6,7 @@
 
 // Hardware UART  
 Adafruit_BluefruitLE_UART bluetoothHID(BLUEFRUIT_HWSERIAL_NAME);
+bool bluetoothIsActive = false;
 
 // Configure the baudrate of the Bluetooth module
 void initBluetoothBaudrate() {
@@ -51,12 +52,15 @@ void initBluetooth() {
         println("Couldn't reset bluetooth device");
         return;
     }
+    bluetoothIsActive = true;
 }
 
 static uint32_t key_pressed_ms = 0;
 
 // Send a keypress to the connected Bluetooth HID host
 void sendBluetoothKey(uint16_t key) {
+    if (!bluetoothIsActive)
+        return ;
     if (key == KEY_PAGE_DOWN) {
         bluetoothHID.sendCommandCheckOK("AT+BLEKEYBOARDCODE=00-00-4E-00-00-00-00");
         key_pressed_ms = millis();
@@ -72,7 +76,10 @@ void sendBluetoothKey(uint16_t key) {
 
 // To be called in loop(), releases the pressed key after 100ms
 void updateBluetoothRelease() {
-    if (millis() - key_pressed_ms > 100) {
+    if (!bluetoothIsActive)
+        return ;
+
+    if ((key_pressed_ms != 0) && (millis() - key_pressed_ms > 100)) {
         bluetoothHID.sendCommandCheckOK("AT+BLEKEYBOARDCODE=00-00-00-00-00-00-00"); // release key
         key_pressed_ms = 0;
     }

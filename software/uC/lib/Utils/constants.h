@@ -6,7 +6,7 @@ void println(const char* format, ...);
 void print(const char* format, ...);
 
 
-#define VERSION 2
+#define VERSION 3
 const uint16_t version = VERSION;
 
 // Occupied pins by Teensy Audio Board are 18,19,20,21,23,6,7,8,10,11,12,13
@@ -33,7 +33,7 @@ const uint16_t version = VERSION;
 // Check if a pin is safe to use
 #define SAFE_PIN_USE(pin) static_assert(!IS_AUDIO_BOARD_PIN(pin), "Pin is reserved by Teensy 4.0 Audio Board!")
 
-// declare a pin , and check that it is not being used by the Teensy audio board
+// declare a pin, and check that it is not being used by the Teensy audio board
 #define DECLARE_SAFE_PIN(name, number) \
   constexpr int name = number; \
   static_assert(!IS_AUDIO_BOARD_PIN(number), "Pin " #number " is reserved by Teensy 4.0 Audio Board!")

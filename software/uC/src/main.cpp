@@ -110,7 +110,7 @@ bool checkRecButton(bool& state) {
   static bool stableButtonState = HIGH;
   static unsigned long lastDebounceTime = 0;
 
-  bool reading = digitalRead(REC_BUTTON_PIN);
+  uint8_t reading = digitalRead(REC_BUTTON_PIN);
   if (reading != lastButtonReading) {
     lastDebounceTime = millis();
   }
@@ -160,6 +160,7 @@ void gainUp() {
     config.model.gainLevel = 15;
   println("increase gain to %i", config.model.gainLevel);
   set_gain_level(config.model.gainLevel);
+  persConfig.writeConfig();
 }
 
 // Decrease input gain
@@ -171,11 +172,12 @@ void gainDown() {
     config.model.gainLevel = 15;
   println("decrease gain to %i", config.model.gainLevel);
   set_gain_level(config.model.gainLevel);
+  persConfig.writeConfig();
 }
 
 // Print help menu
 void printHelp() {
-  println("Page Turner V%i", version);
+  println("Page Turner V%i gain=%i", version, config.model.gainLevel);
   println("   h       - help");
   println("   s       - self test");
   println("   r       - reset");
@@ -302,7 +304,7 @@ void updatePageLED() {
 // let the recording light lethargically blink
 void updateModeLED() {
   if ((mode == MODE_RECORDING) || (mode == MODE_STREAMING)) {
-    digitalWrite(LED_RECORDING_PIN, ANALOG_WRITE_MAX);
+    analogWrite(LED_RECORDING_PIN, ANALOG_WRITE_MAX);
   }
   else 
     if (mode == MODE_PRODUCTION) {
@@ -317,7 +319,7 @@ void updateModeLED() {
 
 // Watchdog callback function
 void watchdogCallback() {
-    digitalWrite(LED_RECORDING_PIN, HIGH);
+    analogWrite(LED_RECORDING_PIN, ANALOG_WRITE_MAX);
     digitalWrite(LED_PAGE_DOWN, HIGH);
     digitalWrite(LED_PAGE_UP, HIGH);
     println("watchdog alerted");
@@ -364,7 +366,7 @@ void setup() {
   
   digitalWrite(LED_PAGE_DOWN, HIGH);
   digitalWrite(LED_PAGE_UP, HIGH);
-  digitalWrite(LED_RECORDING_PIN,HIGH);
+  analogWrite(LED_RECORDING_PIN,ANALOG_WRITE_MAX);
   digitalWrite(LED_ON_PIN, HIGH);
 
   // Initialize audio and metronome
@@ -390,7 +392,7 @@ void setup() {
   // turn off all lights
   digitalWrite(LED_PAGE_DOWN, LOW);
   digitalWrite(LED_PAGE_UP, LOW);
-  digitalWrite(LED_RECORDING_PIN, LOW);
+  analogWrite(LED_RECORDING_PIN, 0);
 
   // start measuring the time without audio
   resetAudioWatchdog();
@@ -402,15 +404,21 @@ void loop() {
 
   // if I am turned off, put me to sleep
   if (digitalRead(SWITCH_ON_OFF_PIN) == LOW) {
+    println("page turner is turned off");
     digitalWrite(LED_PAGE_DOWN, LOW);
     digitalWrite(LED_PAGE_UP, LOW);
-    digitalWrite(LED_RECORDING_PIN, LOW);
+    analogWrite(LED_RECORDING_PIN, LOW);
     digitalWrite(LED_ON_PIN, LOW);
     delay(1000);
+    if (digitalRead(SWITCH_ON_OFF_PIN) == HIGH) {
+      println("page turner is turned on");
+    }
+    else 
+      return;
   }
 
   metronome.update();            // Update metronome click
-  updateKeyboardRelease();     // Release key if needed
+  updateKeyboardRelease();     // Release key if needed~
   updateBluetoothRelease();    // Release Bluetooth key if needed
   updatePageLED();            // Update page LED states
 
@@ -428,14 +436,14 @@ void loop() {
     println("I am sorry, I am saving the bad label on SD");
     digitalWrite(LED_PAGE_UP, HIGH);
     digitalWrite(LED_PAGE_UP, HIGH);
-    digitalWrite(LED_RECORDING_PIN, HIGH);
+    analogWrite(LED_RECORDING_PIN, ANALOG_WRITE_MAX);
 
     saveWavFile(ei_classifier_inferencing_categories[lastLabelNo], lastLabelNo, lastAudioBuffer, OUT_SAMPLES);
     lastLabelNo = silence_label_no; // save label  one only once
 
-    digitalWrite(LED_PAGE_UP, HIGH);
-    digitalWrite(LED_PAGE_UP, HIGH);
-    digitalWrite(LED_RECORDING_PIN, HIGH);
+    digitalWrite(LED_PAGE_UP, LOW);
+    digitalWrite(LED_PAGE_UP, LOW);
+    analogWrite(LED_RECORDING_PIN, 0);
   }
 
   // Start recording or streaming on button press
@@ -471,11 +479,11 @@ void loop() {
     static const int samePredCountReq = 3;     // so many equal predictions until it counts 
 
     if (isAudioDataAvailable() > 0) {
-      last_time_audio_receiver = millis();
       size_t added;
       drainAudioData(audioRawBuffer, added);
       size_t filteredbytes;
       processAudioBuffer(audioRawBuffer, RAW_SAMPLES, audioOutBuffer, filteredbytes);
+      resetAudioWatchdog();
 
       uint32_t now = millis();
       static uint32_t last_inference_time = millis();
@@ -488,7 +496,8 @@ void loop() {
         float pred_certainty;
 
         // Silence detection
-        if (isSilence(audioOutBuffer, OUT_SAMPLES, 0.00011)) {
+        float rms = computeRMS(audioOutBuffer, OUT_SAMPLES);
+        if (rms < 0.0006) {
           pred_no = silence_label_no;
           pred_label = "silence";
           pred_certainty = 1.0;
@@ -521,7 +530,7 @@ void loop() {
               memcpy(lastAudioBuffer, audioOutBuffer, OUT_SAMPLES * sizeof(audioOutBuffer[0]));
               lastLabelNo = pred_no;
 
-              println("Send %s: %.3f", result.classification[pred_no].label, pred_certainty);
+              println("Send %s: %.3f rms=%.5f", result.classification[pred_no].label, pred_certainty,rms);
               if (next_page) {
                 turnOnPageLED(KEY_PAGE_DOWN);
                 sendKeyboardKey(KEY_PAGE_DOWN);
@@ -579,7 +588,7 @@ void loop() {
 
       if ((mode == MODE_STREAMING) && !digitalRead(REC_BUTTON_PIN)) {
         clearAudioBuffer();
-        digitalWrite(LED_RECORDING_PIN, LOW);  // 
+        analogWrite(LED_RECORDING_PIN, ANALOG_WRITE_MAX);  // 
         println("continuing recording next second…");
       } else {
         mode = MODE_NONE;
