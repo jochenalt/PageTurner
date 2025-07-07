@@ -1,0 +1,9 @@
+{
+  "name": "edge-impulse-arduino-sdk",
+  "frameworks": [
+    "arduino"
+  ],
+  "build": {
+    "srcDir": ".",
+    "srcFilter": "+<*> -<examples>"  }
+}
