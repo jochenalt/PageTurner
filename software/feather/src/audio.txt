@@ -11,10 +11,9 @@ AudioRecordQueue     recorder;             // Record 2s snippets
 // Use simple (low latency) Biquad filter 2nd order to create a bandpass for speech (300–3400 Hz) at 12dB
 AudioFilterBiquad    lowPass1;
 AudioFilterBiquad    lowPass2;
+
 AudioFilterBiquad    highPass1;
 AudioFilterBiquad    highPass2;
-
-AudioEffectEnvelope  envelope;
 
 AudioConnection      patchMicToRecord1Cord1(i2s_input, 0, lowPass1, 0);
 AudioConnection      patchMicToRecord1Cord2(lowPass1, 0, lowPass2, 0);

@@ -3,28 +3,31 @@ in Ubuntu install python 3.7
 
 
 -- activate environment before installation
-deactivate
 python3 -m venv ./venv
 source venv/bin/activate 
 
+--- Version mit Python 3.7, model maker 0.3.3 und tensorflow 2.8.0---
+
+#install python 3.7 from https://www.python.org/ftp/python/3.7.4/python-3.7.4-amd64.exe
+
+# create and activate environment 
+deactivate
+rmdir /s /q tflite-env
 python -m venv tflite-env
 tflite-env\Scripts\activate  # on Windows
 python -m ensurepip --upgrade
 python -m pip install --upgrade pip setuptools wheel
 pip install --upgrade pip
 pip install -r requirements.txt
-pip install getch
-pip install scipy
-pip install pydub
-pip install librosa
-pip install pynput
 
-sudo apt update && sudo apt install -y zip unzip
 
-install usbPD from https://github.com/dorssel/usbipd-win/releases on windows
-in powershell:
-#look for  the teensy device and get the number x-y (in my case 5-2)
->usbipd list 
-usbipd wsl bind --busid 5-2
-# this has to be done everytime teensy reboots
-usbipd attach --wsl --busid 5-2
+
+-- activate environment before installation
+deactivate
+rmdir /s /q tt-env
+python3 -m venv tt
+source tt/bin/activate 
+
+python -m ensurepip --upgrade
+pip install --upgrade pip
+pip install flask simpleaudio

@@ -1,6 +1,7 @@
 #include "network.h"
 #include "EEPROMStorage.h"
 #include "WifiManager.h"
+#include <HTTPClient.h>
 
 WiFiManager wm;
 
@@ -61,5 +62,25 @@ void setupNetwork() {
   // 2. Fallback to captive portal if no connection
   if (!connected) {
     startCaptivePortal();
+  }
+
+}
+
+
+void sendAudioToServer(int16_t buffer[], size_t bufferSize) {
+   // Send via HTTP POST
+  if (WiFi.status() == WL_CONNECTED) {
+    HTTPClient http;
+    http.begin(serverUrl);
+    http.addHeader("Content-Type", "application/octet-stream");
+    int code = http.POST((uint8_t*)buffer, bufferSize*2);
+    if (code > 0) {
+      Serial.printf("✔ POST ’%s’ → %d\n", serverUrl, code);
+    } else {
+      Serial.printf("✖ POST failed: %s\n", http.errorToString(code).c_str());
+    }
+    http.end();
+  } else {
+    Serial.println("✖ WiFi disconnected");
   }
 }
