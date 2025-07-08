@@ -27,11 +27,24 @@ BYTES_PER_SAMPLE = 2
 def index():
     # Collect all audio files from the dataset directory structure
     snippets = []
-    total_files = 0
+    label_counts = {}  # Dictionary to store counts per label
     
     # First, get all directories in the dataset base
     label_dirs = [d for d in os.listdir(DATASET_BASE) 
                  if os.path.isdir(os.path.join(DATASET_BASE, d))]
+    
+    # Count files for each label
+    for label in ALLOWED_LABELS:
+        label_dir = os.path.join(DATASET_BASE, label)
+        if os.path.exists(label_dir):
+            wav_files = glob.glob(os.path.join(label_dir, "*.wav"))
+            mp3_files = glob.glob(os.path.join(label_dir, "*.mp3"))
+            label_counts[label] = len(wav_files) + len(mp3_files)
+        else:
+            label_counts[label] = 0
+    
+    # Calculate total files
+    total_files = sum(label_counts.values())
     
     # If a label is selected, only scan that directory
     scan_labels = [current_label] if current_label else label_dirs
@@ -56,7 +69,6 @@ def index():
                     "size": os.path.getsize(file_path),
                     "ts": os.path.getmtime(file_path)
                 })
-                total_files += 1
             except OSError as e:
                 app.logger.error(f"Error reading {file_path}: {str(e)}")
     
@@ -67,7 +79,7 @@ def index():
     for s in snippets:
         s['ts'] = datetime.fromtimestamp(s['ts']).strftime("%Y-%m-%d %H:%M:%S")
     
-    # Render the template
+    # Render the template with label_counts
     return render_template_string("""
 <!DOCTYPE html>
 <html lang="en">
@@ -359,6 +371,37 @@ def index():
                 max-height: 70vh;
             }
         }
+
+        .label-counts {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin: 0 15px;
+            flex-grow: 1;
+        }
+
+        .label-count {
+            font-size: 0.9rem;
+            color: var(--dark);
+            background-color: #e9ecef;
+            padding: 2px 8px;
+            border-radius: 4px;
+        }
+
+        .label-count:nth-child(1) { background-color: #e0e7ff; }
+        .label-count:nth-child(2) { background-color: #d1fae5; }
+        .label-count:nth-child(3) { background-color: #fee2e2; }
+        .label-count:nth-child(4) { background-color: #ede9fe; }
+        .label-count:nth-child(5) { background-color: #fce7f3; }
+        .label-count:nth-child(6) { background-color: #e0f2fe; }
+        .label-count:nth-child(7) { background-color: #f0fdf4; }
+        .label-count:nth-child(8) { background-color: #fef2f2; }
+
+        .status-bar {
+            /* Update existing status-bar style */
+            flex-wrap: wrap;
+            gap: 10px;
+        }
     </style>
 </head>
 <body>
@@ -377,19 +420,20 @@ def index():
                                 {{ message }}
                             </div>
                         {% endfor %}
-                    {% else %}
-                        {% if total_files > 0 %}
-                            Loaded {{ total_files }} audio files from dataset
-                        {% else %}
-                            No audio files found in dataset directory: {{ dataset_path }}
-                        {% endif %}
                     {% endif %}
                 {% endwith %}
             </div>
-            <div class="snippet-count">
-                <span class="badge badge-primary">{{ total_files }} files</span>
-                <span class="badge badge-info">{{ snippets|length }} shown</span>
+            <div class="label-counts">
+                {% for label in allowed %}
+                    {% if label_counts.get(label, 0) > 0 %}
+                        <span class="label-count">{{ label }}({{ label_counts.get(label, 0) }})</span>
+                    {% endif %}
+                {% endfor %}
             </div>
+                <div class="snippet-count">
+                    <span class="badge badge-primary">{{ total_files }} files</span>
+                    <span class="badge badge-info">{{ snippets|length }} shown</span>
+                </div>
         </div>
         
         <div class="control-panel">
@@ -401,26 +445,23 @@ def index():
                     </div>
                     
                     <div class="combo-container">
-                        <form action="{{ url_for('set_label') }}" method="post" style="flex: 1;">
-                            <select name="label" id="label">
-                                <option value="">-- Select a label --</option>
-                                {% for lbl in allowed %}
-                                    <option value="{{ lbl }}" {% if lbl == current_label %}selected{% endif %}>
-                                        {{ lbl }}
-                                    </option>
-                                {% endfor %}
-                            </select>
+                        <select name="label" id="label" onchange="window.location.href='{{ url_for('set_label') }}?label='+this.value">
+                            <option value="">-- Select a label --</option>
+                            {% for lbl in allowed %}
+                                <option value="{{ lbl }}" {% if lbl == current_label %}selected{% endif %}>
+                                    {{ lbl }}
+                                </option>
+                            {% endfor %}
+                        </select>
                     </div>
                 </div>
-                
-                <div class="action-buttons">
-                    <button type="submit" class="btn-primary">Set Label</button>
-                </form>
-                
+    
                 {% if current_label %}
+                <div class="action-buttons">
                     <form action="{{ url_for('clear_label') }}" method="post">
                         <button type="submit" class="btn-outline">Clear Label</button>
                     </form>
+                </div>
                 {% endif %}
             </div>
         </div>
@@ -455,8 +496,9 @@ def index():
                                     <td>{{ s.ts }}</td>
                                     <td>{{ (s.size / 1024)|round(2) }} KB</td>
                                     <td>
-                                        <audio controls>
-                                            <source src="{{ url_for('get_audio', path=s.path) }}" type="audio/wav">
+                                        <audio controls preload="none">
+                                            <source src="{{ url_for('get_audio', filename=s.label + '/' + s.name) }}" type="{% if s.name.endswith('.mp3') %}audio/mpeg{% else %}audio/wav{% endif %}">
+                                            Your browser does not support the audio element.
                                         </audio>
                                     </td>
                                 </tr>
@@ -474,26 +516,26 @@ def index():
     </div>
     
     <script>
-        // Auto-submit label selection when changed
-        document.getElementById('label').addEventListener('change', function() {
-            this.form.submit();
-        });
+        // No need for the change handler anymore since we're using onchange in the select
     </script>
 </body>
 </html>
 """, snippets=snippets, current_label=current_label, 
-    allowed=ALLOWED_LABELS, total_files=total_files,
-    dataset_path=DATASET_BASE)
+        allowed=ALLOWED_LABELS, total_files=total_files,
+        dataset_path=DATASET_BASE, label_counts=label_counts)
 
-@app.route("/set_label", methods=["POST"])
+@app.route("/set_label", methods=["GET"])
 def set_label():
     global current_label
-    lbl = request.form.get("label", "").strip()
-    if lbl not in ALLOWED_LABELS:
+    lbl = request.args.get("label", "").strip()
+    if lbl and lbl not in ALLOWED_LABELS:
         flash(f"Invalid label: {lbl}", "error")
     else:
-        current_label = lbl
-        flash(f"Label set to: {lbl}", "success")
+        current_label = lbl if lbl else None
+        if lbl:
+            flash(f"Label set to: {lbl}", "success")
+        else:
+            flash("Label cleared", "success")
     return redirect(url_for("index"))
 
 @app.route("/clear_label", methods=["POST"])
@@ -543,19 +585,18 @@ def upload():
 
     app.logger.info(f"Saved snippet to dataset: {path}")
     return "OK", 200
-
-@app.route("/audio/<path:path>")
-def get_audio(path):
+@app.route("/audio/<path:filename>")
+def get_audio(filename):
     # Security check to prevent path traversal
-    safe_path = os.path.abspath(path)
+    safe_path = os.path.abspath(os.path.join(DATASET_BASE, filename))
     dataset_base = os.path.abspath(DATASET_BASE)
     
     if not safe_path.startswith(dataset_base):
-        app.logger.error(f"Attempted access outside dataset: {path}")
+        app.logger.error(f"Attempted access outside dataset: {filename}")
         abort(403, "Access denied")
     
     if not os.path.isfile(safe_path):
-        app.logger.error(f"File not found: {path}")
+        app.logger.error(f"File not found: {filename}")
         abort(404)
     
     # Determine MIME type based on file extension
@@ -564,7 +605,17 @@ def get_audio(path):
     else:
         mimetype = 'audio/wav'
     
-    return send_file(safe_path, mimetype=mimetype, as_attachment=False)
+    # Add headers to prevent caching issues
+    response = send_file(
+        safe_path,
+        mimetype=mimetype,
+        as_attachment=False,
+        conditional=True
+    )
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    return response
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000)
