@@ -24,7 +24,5 @@ const uint16_t version = VERSION;
 #define SAMPLE_RATE 16000
 #define SAMPLES_IN_SNIPPET 16000
 
-
 // network
-const char* serverUrl = "http://192.168.1.100:8000/upload";
-//const char* serverUrl = "http://tiny-turner.com:8000/upload";
+extern const char* serverUrl;

@@ -2,6 +2,9 @@
 #include <HardwareSerial.h> 
 #include "constants.h"
 
+const char* serverUrl = "http://172.20.101.7:8000/upload";
+//const char* serverUrl = "http://tiny-turner.com:8000/upload";
+
 void println(const char* format, ...) {
     char s[256];
  	  __gnuc_va_list  args;		

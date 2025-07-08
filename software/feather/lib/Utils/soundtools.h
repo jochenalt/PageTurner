@@ -72,8 +72,12 @@ struct BiquadQ15 {
   }
 };
 
+extern uint32_t last_time_audio_receiver;
+
+
 void initAudio();
 bool isAudioAvailable();
 void drainAudioData(int16_t audio_in_buffer[], size_t audioInBufferSize, size_t &added_samples);
 void filterAudio(int16_t audioBuffer[], size_t audioBufferSize);
+void resetAudioWatchdog();
 

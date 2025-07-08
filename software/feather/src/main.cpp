@@ -120,11 +120,85 @@ void loop() {
 
       if ((mode == MODE_STREAMING) && !digitalRead(REC_BUTTON_PIN)) {
         digitalWrite(LED_REC_PIN, HIGH);  // 
-        println("continuing recording next second");
+        println("continuing streaming ");
       } else {
-        mode = MODE_NONE;
+        mode = MODE_PRODUCTION;
         println("recording finished");
         digitalWrite(LED_REC_PIN, LOW);  // 
+      }
+    }
+  }
+
+  // Production (inference) mode processing
+  if (mode == MODE_PRODUCTION) {
+    uint32_t no_audio_for = millis() - last_time_audio_receiver;
+    if (no_audio_for > 200) {
+      println("no audio for %ums", no_audio_for);
+      resetAudioWatchdog();
+    }
+
+    const int inferencePeriod  = 100;           // [ms] time between two inference calls
+    static const int samePredCountReq = 3;     // so many equal predictions until it counts 
+
+    if (isAudioAvailable() > 0) {
+      size_t added;
+      drainAudioData(audioBuffer, SAMPLES_IN_SNIPPET, added);
+      resetAudioWatchdog();
+
+      uint32_t now = millis();
+      static uint32_t last_inference_time = millis();
+      if (now - last_inference_time > inferencePeriod) {
+        last_inference_time = now;
+
+        int pred_no;
+        String pred_label;
+        float pred_certainty;
+
+        // Silence detection
+        float rms = computeRMS(audioBuffer, SAMPLES_IN_SNIPPET);
+        if (rms < 0.0006) {
+          pred_no = silence_label_no;
+          pred_label = "silence";
+          pred_certainty = 1.0;
+        } else {
+          int pred_label;
+          static float confidence[MAX_LABELS]; 
+          runInference(audioBuffer, SAMPLES_IN_SNIPPET, confidence,  pred_no);
+
+          pred_certainty = confidence[pred_label];
+        }
+
+        // Debounce predictions
+        static int16_t last_pred_no = -1;
+        static int16_t same_pred_count = 0;
+        const int16_t debounce_anouncement_ms = 1500;
+
+        if (pred_no != -1 && pred_no == last_pred_no) {
+          same_pred_count++;
+        } else {
+          same_pred_count = 1;
+          last_pred_no = pred_no;
+        }
+        if (same_pred_count == samePredCountReq) {
+          bool next_page = (pred_no == weiter_label_no); // || ((pred_no == next_label_no)
+          bool prev_page = (pred_no == zurueck_label_no); // || (pred_no == back_label_no)
+
+          static int32_t last_anouncement = millis();
+          int32_t now = millis();
+          if (next_page || prev_page) {
+            if (now - last_anouncement > debounce_anouncement_ms) {
+
+              println("Send %s: %.3f rms=%.5f", getLabelName(pred_no),  pred_certainty,rms);
+              if (next_page) {
+                sendPageDown();
+              }
+              if (prev_page) {
+                sendPageUp();
+              }
+              last_anouncement = now;
+            }
+          }
+        }
       }
     }
   }

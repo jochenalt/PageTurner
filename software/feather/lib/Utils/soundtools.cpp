@@ -46,3 +46,10 @@ void filterAudio(int16_t audioBuffer[], size_t audioBufferSize) {
      audioBuffer[i] = hp.process(lp.process(sample));
   }
 } 
+
+
+uint32_t last_time_audio_receiver = millis();
+
+void resetAudioWatchdog() {
+  last_time_audio_receiver = millis();
+}
