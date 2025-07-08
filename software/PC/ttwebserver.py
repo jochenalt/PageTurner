@@ -449,6 +449,23 @@ def index():
             font-size: 0.9rem;
             color: var(--primary);
         }
+        .btn-sm {
+            padding: 5px 10px;
+            font-size: 0.8rem;
+        }
+
+        .btn-danger {
+            background-color: var(--danger);
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        .btn-danger:hover {
+            background-color: #d1146a;
+        }
     </style>
 </head>
 <body>
@@ -526,7 +543,7 @@ def index():
             <div class="snippets-window">
                 {% if snippets %}
                 <div class="table-container">
-                    <table>
+                     <table>
                         <thead>
                             <tr>
                                 <th>Label</th>
@@ -534,6 +551,7 @@ def index():
                                 <th>Modified</th>
                                 <th>Size</th>
                                 <th>Playback</th>
+                                <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -546,8 +564,13 @@ def index():
                                     <td>
                                         <audio controls preload="none">
                                             <source src="{{ url_for('get_audio', filename=s.label + '/' + s.name) }}" type="{% if s.name.endswith('.mp3') %}audio/mpeg{% else %}audio/wav{% endif %}">
-                                            Your browser does not support the audio element.
                                         </audio>
+                                    </td>
+                                    <td>
+                                        <form action="{{ url_for('delete_file') }}" method="post" onsubmit="return confirm('Are you sure you want to delete this file?');">
+                                            <input type="hidden" name="file_path" value="{{ s.path }}">
+                                            <button type="submit" class="btn-danger btn-sm">Delete</button>
+                                        </form>
                                     </td>
                                 </tr>
                             {% endfor %}
@@ -571,6 +594,32 @@ def index():
 """, snippets=snippets, current_label=current_label, 
         allowed=ALLOWED_LABELS, dataset_stats=dataset_stats,
         dataset_path=DATASET_PATHS['dataset'])
+
+@app.route("/delete_file", methods=["POST"])
+def delete_file():
+    file_path = request.form.get("file_path")
+    if not file_path:
+        flash("No file specified", "error")
+        return redirect(url_for("index"))
+    
+    # Security check
+    safe_path = os.path.abspath(file_path)
+    dataset_base = os.path.abspath(DATASET_PATHS['dataset'])
+    
+    if not safe_path.startswith(dataset_base):
+        flash("Access denied", "error")
+        return redirect(url_for("index"))
+    
+    try:
+        if os.path.exists(safe_path):
+            os.remove(safe_path)
+            flash(f"Deleted file: {os.path.basename(safe_path)}", "success")
+        else:
+            flash("File not found", "error")
+    except Exception as e:
+        flash(f"Error deleting file: {str(e)}", "error")
+    
+    return redirect(url_for("index"))
 
 @app.route("/set_label", methods=["GET"])
 def set_label():
