@@ -25,33 +25,47 @@ BYTES_PER_SAMPLE = 2
 
 @app.route("/", methods=["GET"])
 def index():
-    # Collect all audio files from the dataset directory structure
+    # Define both dataset paths
+    DATASET_PATHS = {
+        "dataset": os.path.abspath(os.path.join(os.path.dirname(__file__), '../dataset')),
+        "trainingdataset": os.path.abspath(os.path.join(os.path.dirname(__file__), '../trainingdataset'))
+    }
+    
+    # Initialize data structures
     snippets = []
-    label_counts = {}  # Dictionary to store counts per label
+    dataset_stats = {}
     
-    # First, get all directories in the dataset base
-    label_dirs = [d for d in os.listdir(DATASET_BASE) 
-                 if os.path.isdir(os.path.join(DATASET_BASE, d))]
+    # First get all label directories from the main dataset
+    label_dirs = [d for d in os.listdir(DATASET_PATHS['dataset']) 
+                 if os.path.isdir(os.path.join(DATASET_PATHS['dataset'], d))]
     
-    # Count files for each label
-    for label in ALLOWED_LABELS:
-        label_dir = os.path.join(DATASET_BASE, label)
-        if os.path.exists(label_dir):
-            wav_files = glob.glob(os.path.join(label_dir, "*.wav"))
-            mp3_files = glob.glob(os.path.join(label_dir, "*.mp3"))
-            label_counts[label] = len(wav_files) + len(mp3_files)
-        else:
-            label_counts[label] = 0
+    # Process both datasets for statistics
+    for dataset_name, dataset_path in DATASET_PATHS.items():
+        label_counts = {}
+        total_files = 0
+        
+        # Count files for each label
+        for label in ALLOWED_LABELS:
+            label_dir = os.path.join(dataset_path, label)
+            if os.path.exists(label_dir):
+                wav_files = glob.glob(os.path.join(label_dir, "*.wav"))
+                mp3_files = glob.glob(os.path.join(label_dir, "*.mp3"))
+                label_counts[label] = len(wav_files) + len(mp3_files)
+                total_files += label_counts[label]
+            else:
+                label_counts[label] = 0
+        
+        dataset_stats[dataset_name] = {
+            'label_counts': label_counts,
+            'total_files': total_files
+        }
     
-    # Calculate total files
-    total_files = sum(label_counts.values())
-    
-    # If a label is selected, only scan that directory
+    # If a label is selected, only scan that directory in the main dataset
     scan_labels = [current_label] if current_label else label_dirs
     
     for label in scan_labels:
-        # Get all audio files for this label
-        label_dir = os.path.join(DATASET_BASE, label)
+        # Get all audio files for this label from main dataset
+        label_dir = os.path.join(DATASET_PATHS['dataset'], label)
         if not os.path.exists(label_dir):
             continue
             
@@ -79,7 +93,7 @@ def index():
     for s in snippets:
         s['ts'] = datetime.fromtimestamp(s['ts']).strftime("%Y-%m-%d %H:%M:%S")
     
-    # Render the template with label_counts
+    # Render the template
     return render_template_string("""
 <!DOCTYPE html>
 <html lang="en">
@@ -402,6 +416,39 @@ def index():
             flex-wrap: wrap;
             gap: 10px;
         }
+        .dataset-stats {
+            flex-grow: 1;
+            margin-right: 15px;
+        }
+
+        .dataset-line {
+            margin-bottom: 5px;
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .dataset-line strong {
+            margin-right: 10px;
+            min-width: 120px;
+        }
+
+        .label-count {
+            font-size: 0.85rem;
+            color: var(--dark);
+            background-color: #e9ecef;
+            padding: 2px 6px;
+            border-radius: 4px;
+            white-space: nowrap;
+        }
+
+        .total-count {
+            margin-left: auto;
+            font-weight: bold;
+            font-size: 0.9rem;
+            color: var(--primary);
+        }
     </style>
 </head>
 <body>
@@ -412,28 +459,29 @@ def index():
         </header>
         
         <div class="status-bar">
-            <div class="status-message">
-                {% with messages = get_flashed_messages(with_categories=true) %}
-                    {% if messages %}
-                        {% for category, message in messages %}
-                            <div class="{{ 'error' if category == 'error' else '' }}">
-                                {{ message }}
-                            </div>
-                        {% endfor %}
-                    {% endif %}
-                {% endwith %}
-            </div>
-            <div class="label-counts">
-                {% for label in allowed %}
-                    {% if label_counts.get(label, 0) > 0 %}
-                        <span class="label-count">{{ label }}({{ label_counts.get(label, 0) }})</span>
-                    {% endif %}
-                {% endfor %}
-            </div>
-                <div class="snippet-count">
-                    <span class="badge badge-primary">{{ total_files }} files</span>
-                    <span class="badge badge-info">{{ snippets|length }} shown</span>
+            <div class="dataset-stats">
+                <div class="dataset-line">
+                    <strong>Labels in dataset:</strong>
+                    {% for label in allowed %}
+                        {% if dataset_stats['dataset']['label_counts'].get(label, 0) > 0 %}
+                            <span class="label-count">{{ label }}({{ dataset_stats['dataset']['label_counts'].get(label, 0) }})</span>
+                        {% endif %}
+                    {% endfor %}
+                    <span class="total-count">{{ dataset_stats['dataset']['total_files'] }} files</span>
                 </div>
+                <div class="dataset-line">
+                    <strong>Labels in training:</strong>
+                    {% for label in allowed %}
+                        {% if dataset_stats['trainingdataset']['label_counts'].get(label, 0) > 0 %}
+                            <span class="label-count">{{ label }}({{ dataset_stats['trainingdataset']['label_counts'].get(label, 0) }})</span>
+                        {% endif %}
+                    {% endfor %}
+                    <span class="total-count">{{ dataset_stats['trainingdataset']['total_files'] }} files</span>
+                </div>
+            </div>
+            <div class="snippet-count">
+                <span class="badge badge-info">{{ snippets|length }} shown</span>
+            </div>
         </div>
         
         <div class="control-panel">
@@ -521,8 +569,8 @@ def index():
 </body>
 </html>
 """, snippets=snippets, current_label=current_label, 
-        allowed=ALLOWED_LABELS, total_files=total_files,
-        dataset_path=DATASET_BASE, label_counts=label_counts)
+        allowed=ALLOWED_LABELS, dataset_stats=dataset_stats,
+        dataset_path=DATASET_PATHS['dataset'])
 
 @app.route("/set_label", methods=["GET"])
 def set_label():
