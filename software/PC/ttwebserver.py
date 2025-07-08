@@ -10,11 +10,6 @@ app.secret_key = "change_this_to_a_random_secret"
 # Corrected path to the dataset directory
 DATASET_BASE = os.path.abspath(os.path.join(os.path.dirname(__file__), '../dataset'))
 
-# allowable labels
-ALLOWED_LABELS = [
-    "back", "next", "weiter", "zurück",
-    "metronome", "silence", "background", "speech"
-]
 # current label state
 current_label = None
 
@@ -22,6 +17,120 @@ current_label = None
 SAMPLE_RATE      = 16000
 NUM_CHANNELS     = 1
 BYTES_PER_SAMPLE = 2
+
+# Function to get labels from dataset directory
+def get_labels_from_dataset():
+    dataset_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../dataset'))
+    try:
+        # Get all subdirectories in dataset folder
+        labels = [d for d in os.listdir(dataset_path) 
+                 if os.path.isdir(os.path.join(dataset_path, d))]
+        return sorted(labels)
+    except Exception as e:
+        app.logger.error(f"Error reading dataset directory: {str(e)}")
+        # Return default labels if there's an error
+        return ["back", "next", "weiter", "zurück", "metronome", "silence", "background", "speech"]
+
+# Set ALLOWED_LABELS dynamically
+ALLOWED_LABELS = get_labels_from_dataset()
+
+# Initialize dataset directories if they don't exist
+DATASET_BASE = os.path.abspath(os.path.join(os.path.dirname(__file__), '../dataset'))
+os.makedirs(DATASET_BASE, exist_ok=True)
+
+# Get labels from dataset directory structure
+ALLOWED_LABELS = get_labels_from_dataset()
+
+# Ensure we have at least the basic labels if directory was empty
+if not ALLOWED_LABELS:
+    ALLOWED_LABELS = ["back", "next", "weiter", "zurück", "silence", "background", "speech"]
+    # Create directories for default labels
+    for label in ALLOWED_LABELS:
+        os.makedirs(os.path.join(DATASET_BASE, label), exist_ok=True)
+
+
+def optimise_dataset():
+    """Copy and convert files from ./dataset to ./trainingdataset, splitting >1s files into 1s WAV segments"""
+    import shutil
+    from pydub import AudioSegment
+    import os
+    from datetime import datetime
+    
+    # Constants
+    SEGMENT_LENGTH_MS = 1000  # 1 second in milliseconds
+    DATASET_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '../dataset'))
+    TRAINING_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '../trainingdataset'))
+    TARGET_SAMPLE_RATE = 16000
+    
+    # Clear existing training dataset
+    if os.path.isdir(TRAINING_DIR):
+        shutil.rmtree(TRAINING_DIR)
+    
+    # Process each label
+    for label in ALLOWED_LABELS:
+        src_dir = os.path.join(DATASET_DIR, label)
+        dest_dir = os.path.join(TRAINING_DIR, label)
+        
+        if not os.path.exists(src_dir):
+            continue
+            
+        os.makedirs(dest_dir, exist_ok=True)
+        file_counter = 0  # Counter for naming split files
+        
+        # Process each audio file
+        for filename in os.listdir(src_dir):
+            src_path = os.path.join(src_dir, filename)
+            base_name = os.path.splitext(filename)[0]
+            
+            try:
+                # Load audio file (handles both WAV and MP3)
+                if filename.lower().endswith('.mp3'):
+                    audio = AudioSegment.from_mp3(src_path)
+                elif filename.lower().endswith('.wav'):
+                    audio = AudioSegment.from_wav(src_path)
+                else:
+                    continue  # Skip non-audio files
+                
+                # Standardize format: mono, 16-bit, 16kHz
+                audio = audio.set_channels(1)
+                audio = audio.set_sample_width(2)  # 16-bit
+                audio = audio.set_frame_rate(TARGET_SAMPLE_RATE)
+                
+                duration_ms = len(audio)
+                
+                # Split into 1-second segments if longer than 1 second
+                if duration_ms > SEGMENT_LENGTH_MS:
+                    num_segments = int(duration_ms / SEGMENT_LENGTH_MS)
+                    for i in range(num_segments):
+                        start = i * SEGMENT_LENGTH_MS
+                        end = start + SEGMENT_LENGTH_MS
+                        segment = audio[start:end]
+                        
+                        # Save as WAV with timestamp and counter
+                        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+                        segment_path = os.path.join(dest_dir, 
+                                                  f"{label}.{timestamp}.{file_counter:04d}.wav")
+                        segment.export(segment_path, format="wav")
+                        file_counter += 1
+                else:
+                    # Save as WAV if <= 1 second
+                    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+                    segment_path = os.path.join(dest_dir, 
+                                              f"{label}.{timestamp}.{file_counter:04d}.wav")
+                    audio.export(segment_path, format="wav")
+                    file_counter += 1
+                
+                app.logger.info(f"Processed {filename} -> {segment_path}")
+                
+            except Exception as e:
+                app.logger.error(f"Error processing {src_path}: {str(e)}")
+                continue
+    
+    # Count and log results
+    total_files = sum([len(files) for r, d, files in os.walk(TRAINING_DIR)])
+    app.logger.info(f"Optimization complete. Created {total_files} WAV segments in {TRAINING_DIR}")
+    return True
+
 
 @app.route("/", methods=["GET"])
 def index():
@@ -466,6 +575,28 @@ def index():
         .btn-danger:hover {
             background-color: #d1146a;
         }
+
+        .action-buttons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .btn-primary {
+            background-color: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 8px 15px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        .btn-primary:hover {
+            background-color: var(--secondary);
+        }
+
     </style>
 </head>
 <body>
@@ -520,14 +651,18 @@ def index():
                         </select>
                     </div>
                 </div>
-    
-                {% if current_label %}
+                
                 <div class="action-buttons">
-                    <form action="{{ url_for('clear_label') }}" method="post">
-                        <button type="submit" class="btn-outline">Clear Label</button>
+                    {% if current_label %}
+                        <form action="{{ url_for('clear_label') }}" method="post">
+                            <button type="submit" class="btn-outline">Clear Label</button>
+                        </form>
+                    {% endif %}
+                    <form action="{{ url_for('handle_optimise_dataset') }}" method="post" 
+                          onsubmit="return confirm('This will recreate the training dataset. Continue?');">
+                        <button type="submit" class="btn-primary">Optimize Dataset</button>
                     </form>
                 </div>
-                {% endif %}
             </div>
         </div>
         
@@ -682,6 +817,7 @@ def upload():
 
     app.logger.info(f"Saved snippet to dataset: {path}")
     return "OK", 200
+
 @app.route("/audio/<path:filename>")
 def get_audio(filename):
     # Security check to prevent path traversal
@@ -713,6 +849,20 @@ def get_audio(filename):
     response.headers['Pragma'] = 'no-cache'
     response.headers['Expires'] = '0'
     return response
+
+
+@app.route("/optimise_dataset", methods=["POST"])
+def handle_optimise_dataset():
+    try:
+        success = optimise_dataset()
+        if success:
+            flash("Dataset optimized successfully!", "success")
+        else:
+            flash("Dataset optimization failed", "error")
+    except Exception as e:
+        app.logger.error(f"Error optimizing dataset: {str(e)}")
+        flash(f"Error: {str(e)}", "error")
+    return redirect(url_for("index"))
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000)

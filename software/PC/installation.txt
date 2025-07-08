@@ -30,4 +30,4 @@ source tt/bin/activate
 
 python -m ensurepip --upgrade
 pip install --upgrade pip
-pip install flask simpleaudio
+pip install flask simpleaudio pydub
