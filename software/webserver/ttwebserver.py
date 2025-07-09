@@ -1,6 +1,6 @@
 from datetime import datetime
 import math
-from flask import Flask, render_template, jsonify, request, send_from_directory
+from flask import Flask, render_template, jsonify, request, send_from_directory, send_file
 import os
 import librosa
 from threading import Thread
@@ -224,7 +224,7 @@ def audio_files():
                         if file.lower().endswith(('.wav', '.mp3')):
                             file_path = os.path.join(folder_path, file)
                             stat = os.stat(file_path)
-                            duration = librosa.get_duration(filename=file_path)
+                            duration = librosa.get_duration(path=file_path)
                             files.append({
                                 'name': file,
                                 'modified': datetime.fromtimestamp(stat.st_mtime).strftime('%d.%m.%y %H:%M:%S'),
@@ -236,7 +236,6 @@ def audio_files():
         # Sort by modification date (newest first)
         files.sort(key=lambda x: x['modified'], reverse=True)
         
-        print(files)
         return jsonify({
             'data': files,
             'total': len(files)
@@ -248,6 +247,24 @@ def audio_files():
             'message': f"Error loading audio files: {str(e)}"
         }), 500
 
+
+@app.route('/dataset/<path:folder>/<path:filename>')
+def serve_audio(folder, filename):
+    try:
+        # Security check to prevent directory traversal
+        if '..' in folder or '..' in filename:
+            raise ValueError("Invalid path")
+            
+        file_path = os.path.join(DATASET_DIR, folder, filename)
+        
+        # Check if file exists and is an audio file
+        if not os.path.exists(file_path) or not filename.lower().endswith(('.wav', '.mp3')):
+            return "File not found", 404
+            
+        return send_file(file_path)
+        
+    except Exception as e:
+        return str(e), 500
 
 @app.route('/api/status')
 def status():

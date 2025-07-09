@@ -33,7 +33,6 @@ function updateComboboxes(language) {
 }
 
 
-
 // Load dataset overview with error handling
 function loadDatasetOverview(language) {
     try {
@@ -67,46 +66,153 @@ function loadDatasetOverview(language) {
     }
 }
 
-// Add this to backend.js after the existing functions
 
-// Function to load audio files based on current filter
+// Global audio context and player variables
+let audioContext = null;
+let currentAudioBuffer = null;
+let currentAudioSource = null;
+let isPlaying = false;
+let currentRowId = null;
+
+// Initialize audio player functionality
+function initAudioPlayer() {
+    // Handle play button clicks
+    webix.event($$("audio_table").getNode(), "click", function(e) {
+        const target = e.target || e.srcElement;
+        
+        // Check if play button was clicked
+        if (target.classList.contains("play-btn")) {
+            const rowElement = target.closest(".audio-player");
+            const rowId = rowElement.getAttribute("data-id");
+            const item = $$("audio_table").getItem(rowId);
+            
+            if (item && item.playback) {
+                if (isPlaying && currentRowId === rowId) {
+                    stopAudio();
+                } else {
+                    currentRowId = rowId;
+                    playAudio(item.playback, rowId);
+                }
+            }
+        }
+    });
+}
+
+// Play audio file
+function playAudio(url, rowId) {  // Add rowId as parameter
+    // Initialize audio context if not already done
+    if (!audioContext) {
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    
+    // Stop any currently playing audio
+    if (isPlaying) {
+        stopAudio();
+    }
+    
+    showStatus(`Loading audio: ${url.split('/').pop()}`);
+    
+    // Fetch and play the audio file
+    fetch(url)
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP error! status:${url} ${response.status}`);
+            }
+            return response.arrayBuffer();
+        })
+        .then(arrayBuffer => {
+            return audioContext.decodeAudioData(arrayBuffer)
+                .then(audioBuffer => {
+                    currentAudioBuffer = audioBuffer;
+                    currentAudioSource = audioContext.createBufferSource();
+                    currentAudioSource.buffer = audioBuffer;
+                    currentAudioSource.connect(audioContext.destination);
+                    currentAudioSource.start(0);
+                    isPlaying = true;
+                    showStatus(`Now playing: ${url.split('/').pop()}`);
+                    
+                    // Update the play button to show stop icon
+                    const playBtn = document.querySelector(`.audio-player[data-id="${rowId}"] .play-btn`);
+                    if (playBtn) {
+                        playBtn.textContent = "Stop";
+                        playBtn.style.backgroundColor = "#f44336"; // Red when playing
+                    }
+                    
+                    // Handle when playback ends
+                    currentAudioSource.onended = function() {
+                        isPlaying = false;
+                        const playBtn = document.querySelector(`.audio-player[data-id="${rowId}"] .play-btn`);
+                        if (playBtn) {
+                            playBtn.textContent = "Play";
+                            playBtn.style.backgroundColor = "#4CAF50"; // Green when stopped
+                        }
+                    };
+                });
+        })
+        .catch(error => {
+            showStatus(`Error playing audio: ${error.message}`, true);
+            console.error("Audio playback error:", error);
+        });
+}
+
+// Stop currently playing audio
+function stopAudio() {
+    if (currentAudioSource) {
+        currentAudioSource.stop();
+        currentAudioSource = null;
+        currentAudioBuffer = null;
+        isPlaying = false;
+        
+        // Reset the play button for the currently playing row
+        if (currentRowId) {
+            const playBtn = document.querySelector(`.audio-player[data-id="${currentRowId}"] .play-btn`);
+            if (playBtn) {
+                playBtn.textContent = "Play";
+                playBtn.style.backgroundColor = "#4CAF50";
+            }
+            currentRowId = null;
+        }
+    }
+}
+
 function loadAudioFiles() {
     const language = $$("language_filter").getValue();
     const labelFilter = $$("label_filter").getValue();
     
-    try {
-        webix.ajax().get(`/api/audio-files?language=${language}&label=${labelFilter}`, {
-            success: function(data, xml) {
-                const response = xml.json();
-                if (response.error) {
-                    showStatus(response.message, true);
-                    $$("audio_table").clearAll();
-                } else {
-                    // Process each file to include duration if available
-                    const processedData = response.data.map(file => {
-                        return {
-                            id: webix.uid(),
-                            name: file.name,
-                            modified: file.modified,
-                            samples: file.samples,
-                            duration: file.duration || 0,
-                            playback: file.audioSrc
-                        };
-                    });
-                    
-                    $$("audio_table").clearAll();
-                    $$("audio_table").parse(processedData);
-                    showStatus(`Loaded ${processedData.length} audio files`);
-                }
-            },
-            error: function(err) {
-                showStatus("Failed to load audio files: " + (err.response?.json?.message || err.status), true);
+    showStatus("Loading audio files...");
+    
+    webix.ajax().get(`/api/audio-files?language=${encodeURIComponent(language)}&label=${encodeURIComponent(labelFilter)}`, {
+        success: function(data, xml) {
+            const response = xml.json();
+            if (response.error) {
+                showStatus(response.message, true);
                 $$("audio_table").clearAll();
+            } else {
+                // Process and display all files (not just one page)
+                const processedData = response.data.map(file => ({
+                    id: webix.uid(),
+                    name: file.name,
+                    modified: file.modified,
+                    samples: file.samples,
+                    duration: file.duration || 0,
+                    playback: file.audioSrc
+                }));
+                
+                $$("audio_table").clearAll();
+                $$("audio_table").parse(processedData);
+                showStatus(`Loaded ${processedData.length} audio files`);
+                
+                // Adjust table height if needed
+                if (processedData.length > 0) {
+                    $$("audio_table").adjustRowHeight();
+                }
             }
-        });
-    } catch (e) {
-        console.error("Error in loadAudioFiles:", e);
-    }
+        },
+        error: function(err) {
+            showStatus("Failed to load audio files: " + (err.response?.json?.message || err.status), true);
+            $$("audio_table").clearAll();
+        }
+    });
 }
 
 function initLanguageFilter() {
@@ -153,7 +259,7 @@ webix.ready(function() {
     
     // Initialize language filter and all comboboxes
     initLanguageFilter();
-
+    initAudioPlayer();
     loadAudioFiles();
 
 });

@@ -217,15 +217,18 @@ webix.ready(
                                             { id: "name", header: "Name", fillspace: true },
                                             { id: "modified", header: "Modified", width: 150 },
                                             { id: "samples", header: "Samples", width: 100 },
-                                           { id: "duration", header: "Duration (s)", width: 100 },
+                                            { id: "duration", header: "Duration (s)", width: 100 },
                                             { id: "playback", 
                                                 header: "Playback", 
                                                 width: 180,
                                                 template: function(obj) {
                                                     return `
                                                         <div class="audio-player" data-id="${obj.id}">
-                                                            <button class="play-btn webix_button" style="width: 60px;">Play</button>
-                                                            <input type="range" class="progress-slider" style="flex: 1;" value="0" disabled>
+                                                            <button class="play-btn webix_button" style="width: 60px; background-color: #4CAF50; color: white;">Play</button>
+                                                            <input type="range" class="progress-slider" style="flex: 1; margin: 0 5px;" value="0" disabled>
+                                                            <span class="duration" style="width: 40px; display: inline-block; text-align: center;">
+                                                                ${obj.duration}s
+                                                            </span>
                                                         </div>
                                                     `;
                                                 }
@@ -233,16 +236,12 @@ webix.ready(
                                             { id: "delete", header: "", width: 80, template: "<div class='webix_icon wxi-trash'></div>" }
                                         ],
                                         data: [
-                                            { id:1, name:"Writer123.wav", modified:"20.10.25 10:22:15", samples:"16000", duration:"1", playback:"my.mp3", },
-                                            { id:2, name:"Writer124.wav", modified:"20.10.25 10:25:33", samples:"16000", duration:"1",playback:"my.mp3", },
-                                            { id:3, name:"Music.001.wav", modified:"20.10.25 11:02:47", samples:"32000" , duration:"1",playback:"my.mp3",},
-                                            { id:4, name:"Speech.005.wav", modified:"20.10.25 11:15:22", samples:"24000", duration:"1",playback:"my.mp3", },
-                                            { id:5, name:"Silence.002.wav", modified:"20.10.25 11:30:18", samples:"8000" , duration:"1",playback:"my.mp3",},
-                                            { id:6, name:"Background.001.wav", modified:"20.10.25 12:05:41", samples:"48000", duration:"1",playback:"my.mp3", }
                                         ],
                                         select: "row",
                                         height: 300,
-                                        scroll: "n",
+                                        scroll: "y", // Enable vertical scrolling
+                                        scrollX: false, // Disable horizontal scrolling
+                                        datathrottle: 500 // Throttle rendering for better performance
 
                                     }
                                 ]
