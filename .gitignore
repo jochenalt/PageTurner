@@ -96,3 +96,6 @@ software/trainingdataset/
 software/model/model.tflite
 software/feather/lib/ei_arduino_library/
 software/PC/tt/
+tt/
+dataset/
+trainingdataset/

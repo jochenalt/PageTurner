@@ -122,6 +122,118 @@ def populate_folder_mapping_stats():
 
     return 
 
+
+def optimise_dataset():
+    """Copy and convert files from ./dataset to ./trainingdataset, splitting >1s files into 1s WAV segments"""
+    import shutil
+    from pydub import AudioSegment
+    import os
+    from datetime import datetime
+    
+    # Constants
+    SEGMENT_LENGTH_MS = 1000  # 1 second in milliseconds
+    TARGET_SAMPLE_RATE = 16000
+
+    # Clear existing training dataset
+    if os.path.isdir(TRAINING_DIR):
+        shutil.rmtree(TRAINING_DIR)
+    
+    # Get unique folders from FOLDER_MAPPING
+    unique_folders = {}
+    for folder in FOLDER_MAPPING['label']:
+        unique_folders[folder] = True  # Using dict keys for uniqueness
+    
+    # Process each unique label
+    for label in unique_folders.keys():
+        src_dir = os.path.join(DATASET_DIR, label)
+        dest_dir = os.path.join(TRAINING_DIR, label)
+        
+        app.logger.info(f"Processing {src_dir} -> {dest_dir}")
+
+        if not os.path.exists(src_dir):
+            app.logger.info(f"Skipping non-existent source directory: {src_dir}")
+            continue
+            
+        os.makedirs(dest_dir, exist_ok=True)
+        file_counter = 0  # Counter for naming split files
+        
+        # Process each audio file
+        for filename in os.listdir(src_dir):
+            src_path = os.path.join(src_dir, filename)
+            base_name = os.path.splitext(filename)[0]
+            
+            try:
+                # Load audio file (handles both WAV and MP3)
+                if filename.lower().endswith('.mp3'):
+                    audio = AudioSegment.from_mp3(src_path)
+                elif filename.lower().endswith('.wav'):
+                    audio = AudioSegment.from_wav(src_path)
+                else:
+                    continue  # Skip non-audio files
+                
+                # Standardize format: mono, 16-bit, 16kHz
+                audio = audio.set_channels(1)
+                audio = audio.set_sample_width(2)  # 16-bit
+                audio = audio.set_frame_rate(TARGET_SAMPLE_RATE)
+                
+                duration_ms = len(audio)
+                
+                # Split into 1-second segments if longer than 1 second
+                if duration_ms > SEGMENT_LENGTH_MS:
+                    num_segments = int(duration_ms / SEGMENT_LENGTH_MS)
+                    for i in range(num_segments):
+                        start = i * SEGMENT_LENGTH_MS
+                        end = start + SEGMENT_LENGTH_MS
+                        segment = audio[start:end]
+                        
+                        # Save as WAV with timestamp and counter
+                        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+                        segment_path = os.path.join(dest_dir, 
+                                                  f"{label}.{timestamp}.{file_counter:04d}.wav")
+                        segment.export(segment_path, format="wav")
+                        file_counter += 1
+                else:
+                    # Save as WAV if <= 1 second
+                    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+                    segment_path = os.path.join(dest_dir, 
+                                              f"{label}.{timestamp}.{file_counter:04d}.wav")
+                    audio.export(segment_path, format="wav")
+                    file_counter += 1
+                
+                
+            except Exception as e:
+                app.logger.error(f"Error processing {src_path}: {str(e)}")
+                continue
+    
+    # Count and log results
+    total_files = sum([len(files) for r, d, files in os.walk(TRAINING_DIR)])
+    app.logger.info(f"Optimization complete. Created {total_files} WAV segments in {TRAINING_DIR}")
+
+    # After processing, update the folder mapping
+    populate_folder_mapping_stats()
+    return True
+
+@app.route('/api/optimize-dataset', methods=['POST'])
+def api_optimize_dataset():
+    try:
+        # Run optimization
+        success = optimise_dataset()
+        if success:
+            return jsonify({
+                'success': True,
+                'message': 'Dataset optimization completed successfully'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'message': 'Dataset optimization failed'
+            }), 500
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f'Error during optimization: {str(e)}'
+        }), 500
+
 @app.route('/api/dataset-overview')
 def dataset_overview():
    

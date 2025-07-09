@@ -278,6 +278,45 @@ function initLanguageFilter() {
     loadAudioFiles();  // Load initial audio files
 }
 
+// Add this function to handle dataset optimization
+function optimizeDataset() {
+    showStatus("Starting dataset optimization...");
+    
+    const btn = $$("create_training_btn");
+    btn.disable();
+    btn.setValue("Processing...");
+    
+    // Set timeout fallback (5 minutes)
+    const timeout = setTimeout(() => {
+        showStatus("Optimization timed out", true);
+        btn.enable();
+        btn.setValue("Create training dataset");
+    }, 300000); // 5 minutes
+    
+    webix.ajax().post("/api/optimize-dataset", {}, {
+        success: function(data, xml) {
+            clearTimeout(timeout); // Clear the timeout
+            const response = xml.json();
+            showStatus(response.message, !response.success);
+            
+            btn.enable();
+            btn.setValue("Create training dataset");
+            
+            if (response.success) {
+                setTimeout(() => {
+                    loadDatasetOverview($$("language_filter").getValue());
+                }, 1000);
+            }
+        },
+        error: function(err) {
+            clearTimeout(timeout); // Clear the timeout
+            showStatus("Failed to optimize dataset: " + (err.response?.json?.message || err.status), true);
+            btn.enable();
+            btn.setValue("Create training dataset");
+        }
+    });
+}
+
 // Update the webix.ready function to use initLanguageFilter
 webix.ready(function() {
     // First verify all components exist
@@ -302,6 +341,19 @@ webix.ready(function() {
         return;
     }
     
+    // Add button event handler
+    $$("create_training_btn").attachEvent("onItemClick", function() {
+        webix.confirm({
+            title: "Confirm Optimization",
+            text: "This will recreate the training dataset. Continue?",
+            callback: function(result) {
+                if (result) {
+                    optimizeDataset();
+                }
+            }
+        });
+    })
+
     // Initialize language filter and all comboboxes
     initLanguageFilter();
     initAudioPlayer();

@@ -4,6 +4,8 @@
     <title>Tiny Turner</title>
     <script src="https://cdn.webix.com/edge/webix.js"></script>
     <link rel="stylesheet" href="https://cdn.webix.com/edge/webix.css">
+    <script src="../codebase/webix.js"></script>   
+    <link href="../codebase/skins/mini.css" rel="stylesheet" type="text/css">
 
 </head>
 <body>
@@ -112,6 +114,13 @@ webix.ready(
                                         view: "toolbar",
                                         cols: [
                                             { view: "label", label: "Dataset Overview" },
+                                            { 
+                                                view: "button", 
+                                                id: "create_training_btn",  // Add this ID
+                                                value: "Create training dataset",
+                                                type: "form",
+                                                width: 200
+                                            },
                                             {
                                                 view: "combo", 
                                                 id: "language_filter",
