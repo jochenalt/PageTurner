@@ -276,9 +276,9 @@ def dataset_overview():
             'id': len(data) + 1,
             'label': label,
             'dataset_count': dataset_count,
-            'dataset_duration': round(dataset_duration),  
+            'dataset_duration': str(round(dataset_duration))+'s',  
             'training_count': training_count,
-            'training_duration': round(training_duration)  # 60 files = 1 minute
+            'training_duration': str(round(training_duration))+'s' 
         })
     
     return jsonify(data)
@@ -316,8 +316,8 @@ def audio_files():
                             files.append({
                                 'name': file,
                                 'modified': datetime.fromtimestamp(stat.st_mtime).strftime('%d.%m.%y %H:%M:%S'),
-                                'samples': str(int(librosa.get_samplerate(file_path))) if file.lower().endswith('.wav') else '16000',
-                                'duration': round(duration, 2),
+                                'samples': str(int(duration*16))+'k',
+                                'duration': str(round(duration, 2))+'s',
                                 'audioSrc': f'/dataset/{folder}/{file}'
                             })
         else:
@@ -340,8 +340,8 @@ def audio_files():
                             files.append({
                                 'name': file,
                                 'modified': datetime.fromtimestamp(stat.st_mtime).strftime('%d.%m.%y %H:%M:%S'),
-                                'samples': str(int(librosa.get_samplerate(file_path))) if file.lower().endswith('.wav') else '16000',
-                                'duration': round(duration, 2),
+                                'samples': str(int(duration*16))+'k',
+                                'duration': str(round(duration, 2))+'s',
                                 'audioSrc': f'/dataset/{folder_name}/{file}'
                             })
         

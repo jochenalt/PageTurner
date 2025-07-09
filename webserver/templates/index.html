@@ -5,8 +5,7 @@
     <script src="https://cdn.webix.com/edge/webix.js"></script>
     <link rel="stylesheet" href="https://cdn.webix.com/edge/webix.css">
     <script src="../codebase/webix.js"></script>   
-    <link href="../codebase/skins/mini.css" rel="stylesheet" type="text/css">
-
+    <link href="../codebase/skins/webix.css" rel="stylesheet" type="text/css">
 </head>
 <body>
 <script>
@@ -137,9 +136,9 @@ webix.ready(
                                         css: "dataset-panel",
                                         columns: [
                                             { id: "label", header: "Label", width: 150 },
-                                            { id: "dataset_count", header: "Dataset Count", width: 120 },
+                                            { id: "dataset_count", header: "Files", width: 120 },
                                             { id: "dataset_duration", header: "Dataset Seconds", width: 140 },
-                                            { id: "training_count", header: "Training Count", width: 120 },
+                                            { id: "training_count", header: "Files", width: 120 },
                                             { id: "training_duration", header: "Training Seconds", width: 140 }
                                         ],
                                         data: [
@@ -207,6 +206,12 @@ webix.ready(
                                             { view: "label", 
                                               label: "Audio Dataset",
                                             },
+                                            { 
+                                                view: "toggle", 
+                                                label: "Training Data",
+                                                value: true,
+                                                width: 150
+                                            },
                                             {
                                                 view: "combo", 
                                                 id: "label_filter",
@@ -229,7 +234,7 @@ webix.ready(
                                             { id: "duration", header: "Duration (s)", width: 100 },
                                             { id: "playback", 
                                                 header: "Playback", 
-                                                width: 250,
+                                                width: 280,
                                                  template: function(obj) {
                                                     return `
                                                         <div class="audio-player" data-id="${obj.id}">
