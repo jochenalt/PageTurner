@@ -98,64 +98,107 @@ function initAudioPlayer() {
     });
 }
 
-// Play audio file
-function playAudio(url, rowId) {  // Add rowId as parameter
-    // Initialize audio context if not already done
-    if (!audioContext) {
-        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+function formatTime(seconds) {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+}
+
+// Add this with your other utility functions
+function updatePlayButton(rowId, isPlaying) {
+    const playBtn = document.querySelector(`.audio-player[data-id="${rowId}"] .play-btn`);
+    if (playBtn) {
+        playBtn.textContent = isPlaying ? "Stop" : "Play";
+        playBtn.style.backgroundColor = isPlaying ? "#f44336" : "#4CAF50";
+        
+        // Also update the title for accessibility
+        playBtn.title = isPlaying ? "Stop playback" : "Play audio";
     }
-    
-    // Stop any currently playing audio
+}
+
+
+// Play audio file
+function playAudio(url, rowId) {
+    if (!audioContext) {
+        try {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        } catch (e) {
+            showStatus("Web Audio API not supported in this browser", true);
+            return;
+        }
+    }
+
     if (isPlaying) {
         stopAudio();
     }
-    
-    showStatus(`Loading audio: ${url.split('/').pop()}`);
-    
-    // Fetch and play the audio file
-    fetch(url)
+
+    const filename = url.split('/').pop();
+    showStatus(`Loading: ${filename}`);
+
+    const audioUrl = `${url}?t=${Date.now()}`;
+    const playerElement = document.querySelector(`.audio-player[data-id="${rowId}"]`);
+    const slider = playerElement.querySelector('.progress-slider');
+    const timeDisplay = playerElement.querySelector('.time-display');
+    let animationFrameId;
+    let startTime;
+    let duration;
+
+    fetch(audioUrl)
         .then(response => {
-            if (!response.ok) {
-                throw new Error(`HTTP error! status:${url} ${response.status}`);
-            }
+            if (!response.ok) throw new Error(`Server responded with ${response.status}`);
             return response.arrayBuffer();
         })
-        .then(arrayBuffer => {
-            return audioContext.decodeAudioData(arrayBuffer)
-                .then(audioBuffer => {
-                    currentAudioBuffer = audioBuffer;
-                    currentAudioSource = audioContext.createBufferSource();
-                    currentAudioSource.buffer = audioBuffer;
-                    currentAudioSource.connect(audioContext.destination);
-                    currentAudioSource.start(0);
-                    isPlaying = true;
-                    showStatus(`Now playing: ${url.split('/').pop()}`);
-                    
-                    // Update the play button to show stop icon
-                    const playBtn = document.querySelector(`.audio-player[data-id="${rowId}"] .play-btn`);
-                    if (playBtn) {
-                        playBtn.textContent = "Stop";
-                        playBtn.style.backgroundColor = "#f44336"; // Red when playing
-                    }
-                    
-                    // Handle when playback ends
-                    currentAudioSource.onended = function() {
-                        isPlaying = false;
-                        const playBtn = document.querySelector(`.audio-player[data-id="${rowId}"] .play-btn`);
-                        if (playBtn) {
-                            playBtn.textContent = "Play";
-                            playBtn.style.backgroundColor = "#4CAF50"; // Green when stopped
-                        }
-                    };
-                });
+        .then(arrayBuffer => audioContext.decodeAudioData(arrayBuffer))
+        .then(audioBuffer => {
+            currentAudioBuffer = audioBuffer;
+            currentAudioSource = audioContext.createBufferSource();
+            currentAudioSource.buffer = audioBuffer;
+            currentAudioSource.connect(audioContext.destination);
+            
+            duration = audioBuffer.duration;
+            slider.max = duration;
+            timeDisplay.textContent = `0:00 / ${formatTime(duration)}`;
+            
+            startTime = audioContext.currentTime;
+            currentAudioSource.start(0);
+            isPlaying = true;
+            currentRowId = rowId;
+            updatePlayButton(rowId, true);
+            showStatus(`Playing: ${filename}`);
+            
+            // Animation loop to update slider
+            function updateProgress() {
+                if (!isPlaying) return;
+                
+                const elapsed = audioContext.currentTime - startTime;
+                const progress = Math.min(elapsed, duration);
+                
+                slider.value = progress;
+                timeDisplay.textContent = `${formatTime(progress)} / ${formatTime(duration)}`;
+                
+                if (progress < duration) {
+                    animationFrameId = requestAnimationFrame(updateProgress);
+                }
+            }
+            
+            updateProgress();
+            
+            currentAudioSource.onended = () => {
+                cancelAnimationFrame(animationFrameId);
+                slider.value = duration;
+                timeDisplay.textContent = `${formatTime(duration)} / ${formatTime(duration)}`;
+                isPlaying = false;
+                currentRowId = null;
+                updatePlayButton(rowId, false);
+            };
         })
         .catch(error => {
-            showStatus(`Error playing audio: ${error.message}`, true);
-            console.error("Audio playback error:", error);
+            showStatus(`Playback failed: ${error.message}`, true);
+            console.error('Audio error:', error);
+            updatePlayButton(rowId, false);
         });
 }
 
-// Stop currently playing audio
 function stopAudio() {
     if (currentAudioSource) {
         currentAudioSource.stop();
@@ -163,13 +206,15 @@ function stopAudio() {
         currentAudioBuffer = null;
         isPlaying = false;
         
-        // Reset the play button for the currently playing row
         if (currentRowId) {
-            const playBtn = document.querySelector(`.audio-player[data-id="${currentRowId}"] .play-btn`);
-            if (playBtn) {
-                playBtn.textContent = "Play";
-                playBtn.style.backgroundColor = "#4CAF50";
+            const playerElement = document.querySelector(`.audio-player[data-id="${currentRowId}"]`);
+            if (playerElement) {
+                const slider = playerElement.querySelector('.progress-slider');
+                const timeDisplay = playerElement.querySelector('.time-display');
+                slider.value = 0;
+                timeDisplay.textContent = `0:00 / ${formatTime(slider.max)}`;
             }
+            updatePlayButton(currentRowId, false);
             currentRowId = null;
         }
     }

@@ -220,14 +220,14 @@ webix.ready(
                                             { id: "duration", header: "Duration (s)", width: 100 },
                                             { id: "playback", 
                                                 header: "Playback", 
-                                                width: 180,
-                                                template: function(obj) {
+                                                width: 250,
+                                                 template: function(obj) {
                                                     return `
                                                         <div class="audio-player" data-id="${obj.id}">
                                                             <button class="play-btn webix_button" style="width: 60px; background-color: #4CAF50; color: white;">Play</button>
-                                                            <input type="range" class="progress-slider" style="flex: 1; margin: 0 5px;" value="0" disabled>
-                                                            <span class="duration" style="width: 40px; display: inline-block; text-align: center;">
-                                                                ${obj.duration}s
+                                                            <input type="range" class="progress-slider" min="0" max="100" value="0" style="width: 120px; margin: 0 5px;">
+                                                            <span class="time-display" style="width: 50px; display: inline-block; text-align: center;">
+                                                                0:00 / ${formatTime(obj.duration)}
                                                             </span>
                                                         </div>
                                                     `;
