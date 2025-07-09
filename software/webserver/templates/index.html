@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Tiny Turner</title>
+    <script src="https://cdn.webix.com/edge/webix.js"></script>
+    <link rel="stylesheet" href="https://cdn.webix.com/edge/webix.css">
+
+</head>
+<body>
+<script>
+webix.ready(
+    function(){
+    webix.ui({
+
+        type: "space",
+        rows: [
+            /* Application Title */
+            {
+                view: "template", 
+                template: "Tiny Turner", 
+                type: "header",   
+                autoheight: true,
+                css: "webix_dark",
+            },
+            
+            /* Message Box */
+            {
+                view: "template",
+                id: "message_box",
+                template: "<div>.</div>",
+                css: "message-box",
+                autoheight: true,
+            },
+            
+            /* Main Content Area */
+            {
+                cols: [
+                    /* Device Panel (Left) */
+                    {
+                        body: {
+                            rows: [
+                                {
+                                    view: "toolbar",
+                                    cols: [
+                                        { view: "label", label: "Device Control" }
+                                    ],
+                                    css: "webix_dark",
+                                },
+                                {
+                                    view: "form",
+                                    id: "device_form",
+                                    css: "device-panel",
+                                    elements: [
+                                        { 
+                                            view: "combo", 
+                                            id: "device_selector",
+                                            label: "Device",
+                                            options: ["12883", "12884"]
+                                        },
+                                        { 
+                                            view: "text", 
+                                            label: "Type", 
+                                            readonly: true,
+                                            value: "Festival" 
+                                        },
+                                        { 
+                                            view: "text", 
+                                            label: "Firmware", 
+                                            readonly: true,
+                                            value: "V6" 
+                                        },
+                                        { 
+                                            view: "text", 
+                                            label: "Active", 
+                                            readonly: true,
+                                            value: "20.10.23 19:20:13" 
+                                        },
+                                        { 
+                                            view: "toggle", 
+                                            label: "Auto-Refresh",
+                                            value: true
+                                        },
+                                        { 
+                                            view: "text", 
+                                            label: "Command", 
+                                            readonly: true,
+                                            value: "pending" 
+                                        },
+                                        { 
+                                            view: "button", 
+                                            value: "Update Firmware",
+                                            type: "form",
+                                            width: 280
+                                        }
+                                    ]
+                                }
+                            ]
+                        },
+                        width: 300
+                    },
+                    { width: 4 }, // spacer
+
+                    /* Right Side Panels */
+                    {
+                        rows: [
+
+                            /* Dataset Overview */
+                            {
+
+                                rows: [
+                                    {
+                                        view: "toolbar",
+                                        cols: [
+                                            { view: "label", label: "Dataset Overview" },
+                                            {
+                                                view: "combo", 
+                                                id: "language_filter",
+                                                width: 200,
+                                                options: ["Deutsch", "English"],
+                                                value: "Deutsch"
+                                            }
+                                        ],
+                                        css: "webix_dark",
+                                    },
+                                    {
+                                        view: "datatable",
+                                        id: "dataset_table",
+                                        css: "dataset-panel",
+                                        columns: [
+                                            { id: "label", header: "Label", width: 150 },
+                                            { id: "dataset_count", header: "Dataset Count", width: 120 },
+                                            { id: "dataset_duration", header: "Dataset Seconds", width: 140 },
+                                            { id: "training_count", header: "Training Count", width: 120 },
+                                            { id: "training_duration", header: "Training Seconds", width: 140 }
+                                        ],
+                                        data: [
+                                        ],
+                                        select: "row",
+                                        scroll: "n",
+                                        autoheight: true,
+                                    }
+                                ]
+                            },
+                            { height: 8 }, // spacer
+                            
+                            /* Recording Panel */
+                            {
+                                rows: [
+                                    {
+                                        view: "toolbar",
+                                        cols: [
+                                            { view: "label", label: "Recording" },
+                                            {
+                                                view: "combo", 
+                                                id: "rec_label_filter",
+                                                width: 200,
+                                                options: ["All Labels", "Weiter", "Zurück", "Next", "Back", "Music", "Speech", "Silence", "Background"],
+                                                value: "All Labels"
+                                            }
+
+                                        ],
+                                        css: "webix_dark",
+                                    },
+                                    {
+                                        view: "form",
+                                        id: "recording_form",
+                                        css: "recording-panel",
+                                        cols: [
+                                            { 
+                                                view: "toggle", 
+                                                label: "Always play",
+                                                value: true,
+                                                labelWidth: 150
+                                            },
+                                            { 
+                                                view: "button", 
+                                                value: "Play last one",
+                                                type: "form",
+                                            },
+                                            { 
+                                                view: "button", 
+                                                value: "Delete last audio snippet",
+                                                type: "form",
+                                            },
+
+                                        ]
+                                    }
+                                ]
+                            },
+                            { height: 8 }, // spacer
+
+                            /* Audio Dataset Browser */
+                            {
+                                rows: [
+                                    {
+                                        view: "toolbar",
+                                        cols: [
+                                            { view: "label", 
+                                              label: "Audio Dataset",
+                                            },
+                                            {
+                                                view: "combo", 
+                                                id: "label_filter",
+                                                width: 200,
+                                                options: ["All Labels", "Writer", "Zurück", "Next", "Back", "Music", "Speech", "Silence", "Background"],
+                                                value: "All Labels"
+                                            }
+                                        ],
+                                        css: "webix_dark",
+
+                                    },
+                                    {
+                                        view: "datatable",
+                                        id: "audio_table",
+                                        css: "audio-panel",
+                                        columns: [
+                                            { id: "name", header: "Name", fillspace: true },
+                                            { id: "modified", header: "Modified", width: 150 },
+                                            { id: "samples", header: "Samples", width: 100 },
+                                            { id: "playback", 
+                                                header: "Playback", 
+                                                width: 180,
+                                                template: function(obj) {
+                                                    return `
+                                                        <div class="audio-player" data-id="${obj.id}">
+                                                            <button class="play-btn webix_button" style="width: 60px;">Play</button>
+                                                            <input type="range" class="progress-slider" style="flex: 1;" value="0" disabled>
+                                                        </div>
+                                                    `;
+                                                }
+                                            },
+                                            { id: "delete", header: "", width: 80, template: "<div class='webix_icon wxi-trash'></div>" }
+                                        ],
+                                        data: [
+                                            { id:1, name:"Writer123.wav", modified:"20.10.25 10:22:15", samples:"16000", playback:"my.mp3", },
+                                            { id:2, name:"Writer124.wav", modified:"20.10.25 10:25:33", samples:"16000", playback:"my.mp3", },
+                                            { id:3, name:"Music.001.wav", modified:"20.10.25 11:02:47", samples:"32000" , playback:"my.mp3",},
+                                            { id:4, name:"Speech.005.wav", modified:"20.10.25 11:15:22", samples:"24000", playback:"my.mp3", },
+                                            { id:5, name:"Silence.002.wav", modified:"20.10.25 11:30:18", samples:"8000" , playback:"my.mp3",},
+                                            { id:6, name:"Background.001.wav", modified:"20.10.25 12:05:41", samples:"48000", playback:"my.mp3", }
+                                        ],
+                                        select: "row",
+                                        height: 300,
+                                        scroll: "n",
+
+                                    }
+                                ]
+                            },
+                        ]
+                    }
+                ]
+            }
+        ]
+    });
+      // Load scripts after UI is ready
+      function loadScript(src) {
+        return new Promise((resolve, reject) => {
+          const script = document.createElement('script');
+          script.src = src;
+          script.onload = resolve;
+          script.onerror = reject;
+          document.body.appendChild(script);
+        });
+      }
+      
+      loadScript('/js/backend.js')
+        .then(() => loadScript('/js/audioPlayer.js'))
+        .catch(err => console.error('Script loading failed:', err));
+});
+</script>
+<script src="/js/backend.js"></script>    
+</body>
+</html>
