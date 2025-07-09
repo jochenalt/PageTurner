@@ -1,23 +1,20 @@
 // backend.js
 
-// Status message handler
+// Add language mappings at the top of the file
+const COMMAND_LABELS = {
+    'English': ['Next',   'Back'],
+    'Deutsch': ['Weiter', 'Zurück']
+};
+
+const LANGUAGE_LABELS = {
+    'English': ['Music', 'Speech', 'Silence', 'Background'],
+    'Deutsch': ['Musik', 'Sprache','Ruhe',   'Geräusche']
+};
+
 // Status message handler
 function showStatus(message, isError = false) {
     const color = isError ? "#ff5c5c" : "#4CAF50";
     $$("message_box").setHTML(`<div style="color: ${color}">${message}</div>`);
-}
-
-// Initialize language filter and update all comboboxes
-function initLanguageFilter() {
-    $$("language_filter").attachEvent("onChange", function(newv) {
-        loadDatasetOverview(newv);
-        updateComboboxes(newv);
-    });
-    
-    // Load initial data
-    const initialLanguage = $$("language_filter").getValue();
-    loadDatasetOverview(initialLanguage);
-    updateComboboxes(initialLanguage);
 }
 
 // Update all comboboxes based on selected language
@@ -35,16 +32,6 @@ function updateComboboxes(language) {
     $$("label_filter").refresh();
 }
 
-// Add language mappings at the top of the file
-const COMMAND_LABELS = {
-    'English': ['Next',   'Back'],
-    'Deutsch': ['Weiter', 'Zurück']
-};
-
-const LANGUAGE_LABELS = {
-    'English': ['Music', 'Speech', 'Silence', 'Background'],
-    'Deutsch': ['Musik', 'Sprache','Ruhe',   'Geräusche']
-};
 
 
 // Load dataset overview with error handling
@@ -80,6 +67,66 @@ function loadDatasetOverview(language) {
     }
 }
 
+// Add this to backend.js after the existing functions
+
+// Function to load audio files based on current filter
+function loadAudioFiles() {
+    const language = $$("language_filter").getValue();
+    const labelFilter = $$("label_filter").getValue();
+    
+    try {
+        webix.ajax().get(`/api/audio-files?language=${language}&label=${labelFilter}`, {
+            success: function(data, xml) {
+                const response = xml.json();
+                if (response.error) {
+                    showStatus(response.message, true);
+                    $$("audio_table").clearAll();
+                } else {
+                    // Process each file to include duration if available
+                    const processedData = response.data.map(file => {
+                        return {
+                            id: webix.uid(),
+                            name: file.name,
+                            modified: file.modified,
+                            samples: file.samples,
+                            duration: file.duration || 0,
+                            playback: file.audioSrc
+                        };
+                    });
+                    
+                    $$("audio_table").clearAll();
+                    $$("audio_table").parse(processedData);
+                    showStatus(`Loaded ${processedData.length} audio files`);
+                }
+            },
+            error: function(err) {
+                showStatus("Failed to load audio files: " + (err.response?.json?.message || err.status), true);
+                $$("audio_table").clearAll();
+            }
+        });
+    } catch (e) {
+        console.error("Error in loadAudioFiles:", e);
+    }
+}
+
+function initLanguageFilter() {
+    $$("language_filter").attachEvent("onChange", function(newv) {
+        loadDatasetOverview(newv);
+        updateComboboxes(newv);
+        loadAudioFiles();  // Also reload audio files when language changes
+    });
+
+    $$("label_filter").attachEvent("onChange", function(newv) {
+        loadAudioFiles();  // This should call loadAudioFiles, not loadDatasetOverview
+    });
+    
+    // Load initial data
+    const initialLanguage = $$("language_filter").getValue();
+    loadDatasetOverview(initialLanguage);
+    updateComboboxes(initialLanguage);
+    loadAudioFiles();  // Load initial audio files
+}
+
 // Update the webix.ready function to use initLanguageFilter
 webix.ready(function() {
     // First verify all components exist
@@ -106,4 +153,7 @@ webix.ready(function() {
     
     // Initialize language filter and all comboboxes
     initLanguageFilter();
+
+    loadAudioFiles();
+
 });

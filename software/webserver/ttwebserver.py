@@ -169,59 +169,77 @@ def dataset_overview():
             'training_duration': round(training_duration)  # 60 files = 1 minute
         })
     
-    print(data)
     return jsonify(data)
 
 @app.route('/api/audio-files')
 def audio_files():
-    if not os.path.exists(DATASET_DIR):
-        return jsonify({
-            'error': True,
-            'message': f"Dataset directory not found at {DATASET_DIR}"
-        }), 500
-
     try:
+        language = request.args.get('language', 'Deutsch')
         label = request.args.get('label', 'All Labels')
-        page = int(request.args.get('page', 1))
-        page_size = int(request.args.get('page_size', 10))
+        
+        # Get all valid labels for the current language
+        commands = COMMAND_LABELS.get(language, COMMAND_LABELS['Deutsch'])
+        labels = LANGUAGE_LABELS.get(language, LANGUAGE_LABELS['Deutsch'])
+        all_labels = commands + labels
         
         files = []
         if label == 'All Labels':
-            for label_dir in os.listdir(DATASET_DIR):
-                label_path = os.path.join(DATASET_DIR, label_dir)
-                if os.path.isdir(label_path):
-                    for file in os.listdir(label_path):
+            # Get files from all folders in FOLDER_MAPPING that match the current language
+            valid_folders = []
+            for display_name, folder_name in zip(FOLDER_MAPPING['name'], FOLDER_MAPPING['label']):
+                if display_name in all_labels:
+                    valid_folders.append(folder_name)
+            
+            # Remove duplicates while preserving order
+            valid_folders = list(dict.fromkeys(valid_folders))
+            
+            for folder in valid_folders:
+                folder_path = os.path.join(DATASET_DIR, folder)
+                if os.path.exists(folder_path):
+                    for file in os.listdir(folder_path):
                         if file.lower().endswith(('.wav', '.mp3')):
-                            stat = os.stat(os.path.join(label_path, file))
+                            file_path = os.path.join(folder_path, file)
+                            stat = os.stat(file_path)
+                            duration = librosa.get_duration(path=file_path)
                             files.append({
                                 'name': file,
                                 'modified': datetime.fromtimestamp(stat.st_mtime).strftime('%d.%m.%y %H:%M:%S'),
-                                'samples': '16000',
-                                'audioSrc': f'/dataset/{label_dir}/{file}'
+                                'samples': str(int(librosa.get_samplerate(file_path))) if file.lower().endswith('.wav') else '16000',
+                                'duration': round(duration, 2),
+                                'audioSrc': f'/dataset/{folder}/{file}'
                             })
         else:
-            label_path = os.path.join(DATASET_DIR, label)
-            if os.path.exists(label_path):
-                for file in os.listdir(label_path):
-                    if file.lower().endswith(('.wav', '.mp3')):
-                        stat = os.stat(os.path.join(label_path, file))
-                        files.append({
-                            'name': file,
-                            'modified': datetime.fromtimestamp(stat.st_mtime).strftime('%d.%m.%y %H:%M:%S'),
-                            'samples': '16000',
-                            'audioSrc': f'/dataset/{label}/{file}'
-                        })
+            # Find the corresponding folder name in FOLDER_MAPPING
+            folder_name = None
+            for display_name, folder in zip(FOLDER_MAPPING['name'], FOLDER_MAPPING['label']):
+                if display_name == label:
+                    folder_name = folder
+                    break
+            
+            if folder_name:
+                folder_path = os.path.join(DATASET_DIR, folder_name)
+
+                if os.path.exists(folder_path):
+                    for file in os.listdir(folder_path):
+                        if file.lower().endswith(('.wav', '.mp3')):
+                            file_path = os.path.join(folder_path, file)
+                            stat = os.stat(file_path)
+                            duration = librosa.get_duration(filename=file_path)
+                            files.append({
+                                'name': file,
+                                'modified': datetime.fromtimestamp(stat.st_mtime).strftime('%d.%m.%y %H:%M:%S'),
+                                'samples': str(int(librosa.get_samplerate(file_path))) if file.lower().endswith('.wav') else '16000',
+                                'duration': round(duration, 2),
+                                'audioSrc': f'/dataset/{folder_name}/{file}'
+                            })
         
-        total = len(files)
-        pages = math.ceil(total / page_size)
-        start = (page - 1) * page_size
-        end = start + page_size
+        # Sort by modification date (newest first)
+        files.sort(key=lambda x: x['modified'], reverse=True)
         
+        print(files)
         return jsonify({
-            'data': files[start:end],
-            'total': total,
-            'pages': pages,
-            'page': page
+            'data': files,
+            'total': len(files)
         })
     
     except Exception as e:
@@ -229,6 +247,7 @@ def audio_files():
             'error': True,
             'message': f"Error loading audio files: {str(e)}"
         }), 500
+
 
 @app.route('/api/status')
 def status():

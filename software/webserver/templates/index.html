@@ -154,7 +154,7 @@ webix.ready(
                                                 view: "combo", 
                                                 id: "rec_label_filter",
                                                 width: 200,
-                                                options: ["All Labels", "Weiter", "Zurück", "Next", "Back", "Music", "Speech", "Silence", "Background"],
+                                                options: ["All Labels"],
                                                 value: "All Labels"
                                             }
 
@@ -202,7 +202,7 @@ webix.ready(
                                                 view: "combo", 
                                                 id: "label_filter",
                                                 width: 200,
-                                                options: ["All Labels", "Writer", "Zurück", "Next", "Back", "Music", "Speech", "Silence", "Background"],
+                                                options: ["All Labels"],
                                                 value: "All Labels"
                                             }
                                         ],
@@ -217,6 +217,7 @@ webix.ready(
                                             { id: "name", header: "Name", fillspace: true },
                                             { id: "modified", header: "Modified", width: 150 },
                                             { id: "samples", header: "Samples", width: 100 },
+                                           { id: "duration", header: "Duration (s)", width: 100 },
                                             { id: "playback", 
                                                 header: "Playback", 
                                                 width: 180,
@@ -232,12 +233,12 @@ webix.ready(
                                             { id: "delete", header: "", width: 80, template: "<div class='webix_icon wxi-trash'></div>" }
                                         ],
                                         data: [
-                                            { id:1, name:"Writer123.wav", modified:"20.10.25 10:22:15", samples:"16000", playback:"my.mp3", },
-                                            { id:2, name:"Writer124.wav", modified:"20.10.25 10:25:33", samples:"16000", playback:"my.mp3", },
-                                            { id:3, name:"Music.001.wav", modified:"20.10.25 11:02:47", samples:"32000" , playback:"my.mp3",},
-                                            { id:4, name:"Speech.005.wav", modified:"20.10.25 11:15:22", samples:"24000", playback:"my.mp3", },
-                                            { id:5, name:"Silence.002.wav", modified:"20.10.25 11:30:18", samples:"8000" , playback:"my.mp3",},
-                                            { id:6, name:"Background.001.wav", modified:"20.10.25 12:05:41", samples:"48000", playback:"my.mp3", }
+                                            { id:1, name:"Writer123.wav", modified:"20.10.25 10:22:15", samples:"16000", duration:"1", playback:"my.mp3", },
+                                            { id:2, name:"Writer124.wav", modified:"20.10.25 10:25:33", samples:"16000", duration:"1",playback:"my.mp3", },
+                                            { id:3, name:"Music.001.wav", modified:"20.10.25 11:02:47", samples:"32000" , duration:"1",playback:"my.mp3",},
+                                            { id:4, name:"Speech.005.wav", modified:"20.10.25 11:15:22", samples:"24000", duration:"1",playback:"my.mp3", },
+                                            { id:5, name:"Silence.002.wav", modified:"20.10.25 11:30:18", samples:"8000" , duration:"1",playback:"my.mp3",},
+                                            { id:6, name:"Background.001.wav", modified:"20.10.25 12:05:41", samples:"48000", duration:"1",playback:"my.mp3", }
                                         ],
                                         select: "row",
                                         height: 300,
@@ -252,22 +253,6 @@ webix.ready(
             }
         ]
     });
-
-
-      // Load scripts after UI is ready
-      function loadScript(src) {
-        return new Promise((resolve, reject) => {
-          const script = document.createElement('script');
-          script.src = src;
-          script.onload = resolve;
-          script.onerror = reject;
-          document.body.appendChild(script);
-        });
-      }
-      
-      loadScript('/js/backend.js')
-        .then(() => loadScript('/js/audioPlayer.js'))
-        .catch(err => console.error('Script loading failed:', err));
 });
 </script>
 <script src="/js/backend.js"></script>    
