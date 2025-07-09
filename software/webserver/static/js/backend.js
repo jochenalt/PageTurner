@@ -7,16 +7,44 @@ function showStatus(message, isError = false) {
     $$("message_box").setHTML(`<div style="color: ${color}">${message}</div>`);
 }
 
-
-// Initialize language filter
+// Initialize language filter and update all comboboxes
 function initLanguageFilter() {
     $$("language_filter").attachEvent("onChange", function(newv) {
         loadDatasetOverview(newv);
+        updateComboboxes(newv);
     });
     
     // Load initial data
-    loadDatasetOverview($$("language_filter").getValue());
+    const initialLanguage = $$("language_filter").getValue();
+    loadDatasetOverview(initialLanguage);
+    updateComboboxes(initialLanguage);
 }
+
+// Update all comboboxes based on selected language
+function updateComboboxes(language) {
+    // Get the command and label names for the selected language
+    const commands = COMMAND_LABELS[language] || COMMAND_LABELS['German'];
+    const labels = LANGUAGE_LABELS[language] || LANGUAGE_LABELS['Deutsch'];
+    
+    // Update Recording Panel combobox
+    $$("rec_label_filter").define("options", ["All Labels", ...commands, ...labels]);
+    $$("rec_label_filter").refresh();
+    
+    // Update Audio Dataset Browser combobox
+    $$("label_filter").define("options", ["All Labels", ...commands, ...labels]);
+    $$("label_filter").refresh();
+}
+
+// Add language mappings at the top of the file
+const COMMAND_LABELS = {
+    'English': ['Next',   'Back'],
+    'Deutsch': ['Weiter', 'Zurück']
+};
+
+const LANGUAGE_LABELS = {
+    'English': ['Music', 'Speech', 'Silence', 'Background'],
+    'Deutsch': ['Musik', 'Sprache','Ruhe',   'Geräusche']
+};
 
 
 // Load dataset overview with error handling
@@ -52,13 +80,15 @@ function loadDatasetOverview(language) {
     }
 }
 
-// backend.js
+// Update the webix.ready function to use initLanguageFilter
 webix.ready(function() {
     // First verify all components exist
     const components = [
         'language_filter', 
         'dataset_table',
-        'message_box'
+        'message_box',
+        'rec_label_filter',
+        'label_filter'
     ];
     
     let allComponentsExist = true;
@@ -74,11 +104,6 @@ webix.ready(function() {
         return;
     }
     
-    // Initialize language filter
-    $$("language_filter").attachEvent("onChange", function(newv) {
-        loadDatasetOverview(newv);
-    });
-    
-    // Load initial data
-    loadDatasetOverview($$("language_filter").getValue());
+    // Initialize language filter and all comboboxes
+    initLanguageFilter();
 });

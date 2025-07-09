@@ -47,8 +47,8 @@ LANGUAGE_LABELS = {
 }
 
 COMMAND_LABELS = {
-    'German':  ['Weiter', 'Zurück'],
-    'Deutsch': ['Next',   'Back'],
+    'Deutsch':  ['Weiter', 'Zurück'],
+    'English': ['Next',   'Back'],
 }
 
 FOLDER_MAPPING = {
@@ -60,7 +60,7 @@ FOLDER_MAPPING = {
      'training_length': [0]*12
 }
 
-bool folder_mapping_updated = False
+folder_mapping_updated = False
 
 def populate_folder_mapping_stats():
     global FOLDER_MAPPING
@@ -125,15 +125,21 @@ def populate_folder_mapping_stats():
 @app.route('/api/dataset-overview')
 def dataset_overview():
    
-    language = request.args.get('language', 'German')
+    language = request.args.get('language', 'Deutsch')
     data = []
     
+    # Get the correct labels for the requested language
+    commands = COMMAND_LABELS.get(language, COMMAND_LABELS['Deutsch'])
+
+    labels = LANGUAGE_LABELS.get(language, LANGUAGE_LABELS['Deutsch'])
+
+    # Combine labels while preserving order (command labels first)
+    labels_to_show = commands + labels
+
     # Create mapping dictionaries
     name_to_folder = dict(zip(FOLDER_MAPPING['name'], FOLDER_MAPPING['label']))
     label_to_index = {label: i for i, label in enumerate(FOLDER_MAPPING['label'])}
 
-    # Combine labels while preserving order (command labels first)
-    labels_to_show = COMMAND_LABELS.get(language, []) + LANGUAGE_LABELS.get(language, [])
 
     for label in labels_to_show:
         # Get corresponding folder name from mapping
@@ -163,6 +169,7 @@ def dataset_overview():
             'training_duration': round(training_duration)  # 60 files = 1 minute
         })
     
+    print(data)
     return jsonify(data)
 
 @app.route('/api/audio-files')
@@ -244,9 +251,7 @@ if __name__ == '__main__':
             print("Some features may not work without training data")
         
         # calculate the content
-        print(f"Determining content of {DATASET_DIR} and {TRAINING_DIR}")
         Thread(target=populate_folder_mapping_stats, daemon=True).start()
-        print(f"Starting Webserver")
 
         app.run(host="0.0.0.0", port=8000, debug=True)
     except Exception as e:
