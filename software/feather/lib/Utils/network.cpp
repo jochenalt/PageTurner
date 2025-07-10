@@ -26,9 +26,12 @@ void startCaptivePortal() {
   wm.addParameter(&custom_text);
 
   char serial_field[WIFI_CREDENTIAL_LEN] = "";
-  WiFiManagerParameter custom_serial("serial", "SERIAL",serial_field, WIFI_CREDENTIAL_LEN);
+    WiFiManagerParameter custom_serial("serial", "SERIAL",serial_field, WIFI_CREDENTIAL_LEN);
   if (config.model.serialNo[0] == 0) {
     wm.addParameter(&custom_serial);
+  } else {
+    String s = String("<p>Your serial number is ") + String(config.model.serialNo) + String("</p>");
+    WiFiManagerParameter custom_text(s.c_str());
   }
   // Custom SSID input field
   // char ssid_field[WIFI_CREDENTIAL_LEN] = "";

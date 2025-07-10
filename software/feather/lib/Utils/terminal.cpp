@@ -1,6 +1,8 @@
 #include <Arduino.h>
 #include "terminal.h"
 #include "constants.h"
+#include "EEPROMStorage.h"
+#include "network.h"
 
 // Flags and buffers for command processing
 bool commandPending = false;                                // true if a command is in progress
@@ -25,7 +27,8 @@ extern float cellVoltage;
 
 // Print help menu
 void printHelp() {
-  println("Tiny Turner V%i %f.1V", VERSION,cellVoltage );
+  println("Tiny Turner %s V%i Bat %0.2fV", config.model.serialNo, VERSION,cellVoltage );
+  println("   n       - start captive WiFi Portal");
   println("   h       - help");
 }
 
@@ -42,9 +45,13 @@ void executeManualCommand() {
     char inputChar = Serial.read();
 
     switch (inputChar) {
+      case 'n':
+        if (command == "") startCaptivePortal(); else addCmd(inputChar);
+        break;
       case 'h':
         if (command == "") printHelp(); else addCmd(inputChar);
         break;
+
       case 10:
       case 13:
         if (command.startsWith("b")) emptyCmd();

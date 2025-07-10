@@ -2,3 +2,4 @@
 
 
 void setupNetwork();
+void startCaptivePortal();
