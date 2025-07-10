@@ -10,7 +10,15 @@
 #include "constants.h"
 #include "network.h"
 #include "EEPROMStorage.h"
+#include "terminal.h"
 
+// Operating Modes
+enum ModeType { MODE_NONE, MODE_PRODUCTION, MODE_RECORDING, MODE_STREAMING };
+ModeType mode = MODE_PRODUCTION;                                 // current operating mode
+
+
+// last voltage measured
+float cellVoltage, cellPercentage;
 
 void setup() {
   Serial.begin(115200);
@@ -32,7 +40,7 @@ void setup() {
   println("EEPROM Size: %d B",  EEPROM.length());
  
   // use the blinking LED
-  pinMode(LED_BUILTIN, OUTPUT);
+  pinMode(LED_RECORDING_PIN, OUTPUT);
 
   // print content of EEPROM
   config.model.print();
@@ -42,13 +50,28 @@ void setup() {
 }
 
 
-void loop() {
-  float cellVoltage, cellPercentage;
-  readBatMonitor(cellVoltage, cellPercentage);
-  println("voltage %.3fV percentage %.1f%", cellVoltage,cellPercentage);
-  delay(2000);
+// let the recording light lethargically blink
+void updateModeLED() {
+  if ((mode == MODE_RECORDING) || (mode == MODE_STREAMING)) {
+    analogWrite(LED_RECORDING_PIN, ANALOG_WRITE_MAX);
+  }
+  else 
+    if (mode == MODE_PRODUCTION) {
+      // lethargic blinking, like an "ON AIR" sign
+      int val = ((2000 - millis() % 2000) * ANALOG_WRITE_MAX) / 2000;
+      analogWrite(LED_RECORDING_PIN, val);
+   } else {
+      analogWrite(LED_RECORDING_PIN,0 );
+   }
+}
 
-  digitalWrite(LED_BUILTIN, HIGH);
-  delay(500);
-  digitalWrite(LED_BUILTIN, LOW);
+void loop() {
+  // measure the battery 
+  readBatMonitor(cellVoltage, cellPercentage);
+
+  // Process any manual serial commands
+  executeManualCommand();
+
+  // let it blink depending on the mode
+  updateModeLED();
 }

@@ -21,6 +21,10 @@ const uint16_t version = VERSION;
 #define VBAT_PIN A13
 #endif
 
+#define LED_RECORDING_PIN BUILTIN_LED
+
+// for the analog pins: this is the max value
+#define ANALOG_WRITE_MAX 255
 
 // Inference
 #define MAX_LABELS 10
