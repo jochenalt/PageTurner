@@ -22,7 +22,7 @@ bool tryKnownNetworks() {
 }
 
 void startCaptivePortal() {
-  WiFiManagerParameter custom_text("<p>Enter new WiFi credentials</p>");
+  WiFiManagerParameter custom_text("<p>Enter your Tiny Turners serial number</p>");
   wm.addParameter(&custom_text);
 
   char serial_field[WIFI_CREDENTIAL_LEN] = "";
@@ -31,24 +31,25 @@ void startCaptivePortal() {
     wm.addParameter(&custom_serial);
   }
   // Custom SSID input field
-  char ssid_field[WIFI_CREDENTIAL_LEN] = "";
-  WiFiManagerParameter custom_ssid("ssid", "SSID", ssid_field, WIFI_CREDENTIAL_LEN);
-  wm.addParameter(&custom_ssid);
+  // char ssid_field[WIFI_CREDENTIAL_LEN] = "";
+  // WiFiManagerParameter custom_ssid("ssid", "SSID", ssid_field, WIFI_CREDENTIAL_LEN);
+  // wm.addParameter(&custom_ssid);
 
   // Custom password field
-  char pass_field[WIFI_CREDENTIAL_LEN] = "";
-  WiFiManagerParameter custom_pass("pass", "Password", pass_field, WIFI_CREDENTIAL_LEN);
-  wm.addParameter(&custom_pass);
+  // char pass_field[WIFI_CREDENTIAL_LEN] = "";
+  // WiFiManagerParameter custom_pass("pass", "Password", pass_field, WIFI_CREDENTIAL_LEN);
+  // wm.addParameter(&custom_pass);
 
   // Start portal with 3min timeout
-  if (!wm.startConfigPortal("TinyTurner Setup")) {
+  bool connectSuccess = wm.startConfigPortal("TinyTurner Setup");
+  if (!connectSuccess) {
     println("Failed to connect, restarting.");
     ESP.restart();
   }
 
   // Save new credentials
-  config.model.addNetwork(custom_ssid.getValue(), custom_pass.getValue());
-
+  config.model.addNetwork(WiFi.SSID().c_str(), WiFi.psk().c_str());
+  println("adding new network is %s pw=%s",WiFi.SSID().c_str(), WiFi.psk().c_str());
   if (config.model.serialNo[0] == 0) {
       strncpy(config.model.serialNo, custom_serial.getValue(), WIFI_CREDENTIAL_LEN);
   }
@@ -56,14 +57,13 @@ void startCaptivePortal() {
 }
 
 void setupNetwork() {
-  // 1. Try to connect to known networks
+  // Try to connect to known networks
   bool connected = tryKnownNetworks();
   
-  // 2. Fallback to captive portal if no connection
+  // Fallback to captive portal if no connection
   if (!connected) {
     startCaptivePortal();
   }
-
 }
 
 

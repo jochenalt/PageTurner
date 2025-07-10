@@ -117,4 +117,3 @@ void EEPROMStorage::setup() {
 
     // println("magic number %i, %i writes. Setup successful.",EEPROM_MAGIC_NUMBER, config.write_counter);
 }
-

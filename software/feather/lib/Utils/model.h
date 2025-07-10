@@ -20,6 +20,6 @@ struct ModelConfigDataType {
   void addNetwork(const char* ssid, const char* pass);
 
   WifiCredential storedNetworks[MAX_NETWORKS];
-  uint8_t networkPointer;
+  uint8_t nextNewNetwork;
   char serialNo[WIFI_CREDENTIAL_LEN];
 }; 

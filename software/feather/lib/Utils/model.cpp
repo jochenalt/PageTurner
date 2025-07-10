@@ -13,9 +13,14 @@ void ModelConfigDataType::println(const char* format, ...) {
 };
 
 void ModelConfigDataType::print() {
+    println("Stored networks:");
+    
     for (int i = 0;i<MAX_NETWORKS;i++) {
-        println("%i. wifi SSID %s", i,storedNetworks[i].ssid,storedNetworks[i].pass);
+        println("   %i. wifi SSID %s", i,storedNetworks[i].ssid,storedNetworks[i].pass);
     }
+    println("next new network gets in slot  %i",nextNewNetwork);
+    println("serial number is %s",serialNo);
+
 }; 
         
 
@@ -24,17 +29,17 @@ void ModelConfigDataType::setup() {
         storedNetworks[i].ssid[0] = 0;
         storedNetworks[i].pass[0] = 0;
     }
-    networkPointer = 0;
+    nextNewNetwork = 0;
     serialNo[0]  = 0;
 }
 
 void ModelConfigDataType::addNetwork(const char* ssid, const char* pass) {
 
   // Store new network
-  strncpy(storedNetworks[networkPointer].ssid, ssid, WIFI_CREDENTIAL_LEN);
-  strncpy(storedNetworks[networkPointer].pass, pass, WIFI_CREDENTIAL_LEN);
+  strncpy(storedNetworks[nextNewNetwork].ssid, ssid, WIFI_CREDENTIAL_LEN);
+  strncpy(storedNetworks[nextNewNetwork].pass, pass, WIFI_CREDENTIAL_LEN);
   
-  printf("Saved: %s (Slot %d)\n", ssid, networkPointer);
-  networkPointer = (networkPointer+1) % MAX_NETWORKS;
+  nextNewNetwork = (nextNewNetwork+1) % MAX_NETWORKS;
+  printf("Saved network ""%s""/""%s"" (Slot %d)\n", ssid, pass, nextNewNetwork);
 }
 
