@@ -328,23 +328,18 @@ function formatDate(isoString) {
 }
 
 function formatBytes(bytes) {
-    if (bytes === 0) return '0 Bytes';
+    if (isNaN(bytes) || bytes === 0) return '0 Bytes';
     const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB'];
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2) + ' ' + sizes[i]);
+    // Fixed concatenation by using template literals
+    return `${(bytes / Math.pow(k, i)).toFixed(2)} ${sizes[i]}`;
 }
-
 
 function loadDevices() {
     // Check if the device_selector exists
     if (!$$("device_selector")) {
         console.error("device_selector not found");
-        return;
-    }
-
-    if (!$$("owner_selector")) {
-        console.error("owner_selector not found");
         return;
     }
 
@@ -360,19 +355,8 @@ function loadDevices() {
             const deviceOptions = response.devices.map(device => {
                 return {
                     id: device.id,
-                    value: `${device.id} - ${device.owner || 'Unknown'}`,
-                    owner: `${device.owner} - ${device.id || 'Unknown'}`
+                    value: device.id
                 };
-            });
-
-             // Create owner options (unique owners only)
-            const ownerMap = {};
-            response.devices.forEach(device => {
-                const owner = device.owner || 'Unknown';
-                ownerMap[owner] = true;
-            });
-            const ownerOptions = Object.keys(ownerMap).map(owner => {
-                return { id: owner, value: owner };
             });
 
             // Update device selector
@@ -381,11 +365,6 @@ function loadDevices() {
                 $$("device_selector").refresh();
             }
 
-            // Update owner selector
-            if ($$("owner_selector")) {
-                $$("owner_selector").define("options", ownerOptions);
-                $$("owner_selector").refresh();
-            }
         },
         error: function(err) {
             showStatus("Device list loading failed: " + err.status, true);
@@ -393,6 +372,38 @@ function loadDevices() {
     });
 }
 
+function updateDeviceInfo(device) {
+    $$("device_owner").setValue(device.owner);
+    $$("device_chip_id").setValue(device.id);
+    $$("device_board").setValue(device.board);
+    $$("device_flash").setValue(formatBytes(device.flash));
+    $$("device_psram").setValue(formatBytes(device.psram));
+    $$("device_heap").setValue(formatBytes(device.heap));
+    $$("device_version").setValue(device.version );
+    $$("device_lastseen").setValue(formatDate(device.last_seen) );
+}
+
+function loadDeviceDetails(deviceId) {
+    showStatus(`Loading device ${deviceId}...`);
+    
+    webix.ajax().get(`/api/device/device=${encodeURIComponent(deviceId)}`, {
+        success: function(data, xml) {
+            const device = xml.json();
+            if (device.error) {
+                showStatus("Failed to load device: " + device.message, true);
+                return;
+            }
+            
+            updateDeviceInfo(device);
+            showStatus(`Device ${deviceId} loaded`);
+        },
+        error: function(err) {
+            const errorMsg = err.response?.json?.message || err.status;
+            showStatus("Failed to load device details: " + errorMsg, true);
+            console.error("Device load error:", err);
+        }
+    });
+}
 
 // Update the webix.ready function to use initLanguageFilter
 webix.ready(function() {
@@ -431,13 +442,15 @@ webix.ready(function() {
         });
     })
 
-    $$("device_selector").attachEvent("onChange", function(newv, oldv){
-        const selected = this.getList().getItem(newv);
-        $$("device_form").setValues({
-            "Type": selected.board,
-            "Active": formatDate(selected.lastSeen)
-        });
-    });
+    // Device selector change handler
+    $$("device_selector").attachEvent("onChange", function(newv) {
+    if (newv) {
+        // Load details for the selected device
+         $$("device_selector").setValue(newv);
+        loadDeviceDetails(newv);
+        
+    }
+});
 
     loadDevices();
     setInterval(loadDevices, 30000);

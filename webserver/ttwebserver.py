@@ -502,6 +502,33 @@ def get_devices():
             'message': f'Failed to get devices: {str(e)}'
         }), 500
     
+
+# Full device details (called when selected)
+@app.route('/api/device/device=<device_id>')
+def get_device_details(device_id):
+    try:
+        device = device_registry.get(device_id)
+        if not device:
+            print(f"device {device_id} not found")
+            return jsonify({'error: Device not found ': device_id }), 404
+            
+        s =   jsonify({
+            'id': device_id,
+            'owner': device.get('owner', 'Unknown'),
+            'board': device.get('board', 'Unknown'),
+            'flash': device.get('flash', 'Unknown'),
+            'psram': device.get('psram', 'Unknown'),
+            'heap': device.get('freeheap', 'Unknown'),
+            'version': device.get('version', 'Unknown'),
+            'last_seen': device.get('last_seen')
+        })
+        print(f"device: {s}")
+        return s
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+
 if __name__ == '__main__':
     try:
         # Check directories exist
