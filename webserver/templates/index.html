@@ -58,40 +58,47 @@ webix.ready(
                                             label: "Device",
                                             options: ["12883", "12884"]
                                         },
+                                         { 
+                                            view: "text", 
+                                            label: "Board", 
+                                            readonly: true,
+                                            id: "device_board"
+                                        },
                                         { 
                                             view: "text", 
-                                            label: "Type", 
+                                            label: "Flash Size", 
                                             readonly: true,
-                                            value: "Concert" 
+                                            id: "device_flash"
+                                        },
+                                        { 
+                                            view: "text", 
+                                            label: "PSRAM", 
+                                            readonly: true,
+                                            id: "device_psram"
+                                        },
+                                        { 
+                                            view: "text", 
+                                            label: "Free Heap", 
+                                            readonly: true,
+                                            id: "device_heap"
                                         },
                                         { 
                                             view: "text", 
                                             label: "Firmware", 
                                             readonly: true,
-                                            value: "V6" 
+                                            id: "device_version"
                                         },
                                         { 
                                             view: "text", 
-                                            label: "Active", 
+                                            label: "Serial", 
                                             readonly: true,
-                                            value: "20.10.23 19:20:13" 
-                                        },
-                                        { 
-                                            view: "toggle", 
-                                            label: "Auto-Refresh",
-                                            value: true
+                                            id: "device_serial"
                                         },
                                         { 
                                             view: "text", 
-                                            label: "Command", 
+                                            label: "Last Seen", 
                                             readonly: true,
-                                            value: "pending" 
-                                        },
-                                        { 
-                                            view: "button", 
-                                            value: "Update Firmware",
-                                            type: "form",
-                                            width: 280
+                                            id: "device_lastseen"
                                         }
                                     ]
                                 }

@@ -68,6 +68,7 @@ void startCaptivePortal() {
   println("adding new network is %s pw=%s",WiFi.SSID().c_str(), WiFi.psk().c_str());
   if (config.model.serialNo[0] == 0) {
       strncpy(config.model.serialNo, custom_serial.getValue(), WIFI_CREDENTIAL_LEN);
+
   }
   persConfig.writeConfig();
 }

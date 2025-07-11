@@ -10,9 +10,15 @@ String command;                                             // buffer for incomi
 uint32_t commandLastChar_us = 0;                            // timestamp of last received character
 
 // Add a character to incoming command
-void addCmd(char ch) {
-  if ((ch != 10) && (ch != 13))
+void addCmd(char ch, bool out = true) {
+  if ((ch != 10) && (ch != 13)) {
+    if (out) {
+      Serial.print(ch);
+      Serial.flush();
+    }
+
     command += ch;
+  }
   commandPending = true;
 }
 
@@ -27,10 +33,23 @@ extern float cellVoltage;
 
 // Print help menu
 void printHelp() {
-  println("Tiny Turner %s V%i Bat %0.2fV serial:%s", config.model.serialNo, VERSION,cellVoltage, config.model.serialNo );
+  println("Tiny Turner %s V%i Bat %0.2fV serial:\"%s\"", config.model.serialNo, VERSION,cellVoltage, config.model.serialNo );
   println("   n       - start captive WiFi Portal");
+  println("   s       - set serial numbers");
   println("   d       - send device information");
   println("   h       - help");
+}
+
+
+// Set serial number from command input
+void setSerialNumber(String newSerial) {
+    newSerial.trim();
+    
+    if (newSerial.length() > 0) {
+      strncpy(config.model.serialNo, newSerial.c_str(), newSerial.length()+1);
+      persConfig.writeConfig();
+      println("Serial number set to: %s", config.model.serialNo);
+    }
 }
 
 
@@ -55,17 +74,27 @@ void executeManualCommand() {
       case 'h':
         if (command == "") printHelp(); else addCmd(inputChar);
         break;
-
-      case 10:
-      case 13:
-        if (command.startsWith("b")) emptyCmd();
+      case 's':
+        if (command == "") {
+          println("Enter new serial number:");
+          addCmd(inputChar, false);
+        } 
+        break;
+      case 10:  // LF
+      case 13:  // CR
+        if (command.startsWith("s")) {
+          Serial.println();
+          setSerialNumber(command.substring(1));
+          emptyCmd();
+        } else if (command.startsWith("b")) {
+          emptyCmd();
+        }
         break;
       default:
         addCmd(inputChar);
     }
   }
 }
-
 
 
 
