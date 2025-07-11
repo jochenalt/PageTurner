@@ -65,6 +65,10 @@ FOLDER_MAPPING = {
 
 folder_mapping_updated = False
 
+# Add this near the top with other global variables
+device_registry = {}  # Global dictionary to store all devices by chip_id
+
+
 def populate_folder_mapping_stats():
     global FOLDER_MAPPING
 
@@ -241,7 +245,6 @@ def dataset_overview():
     
     # Get the correct labels for the requested language
     commands = COMMAND_LABELS.get(language, COMMAND_LABELS['Deutsch'])
-
     labels = LANGUAGE_LABELS.get(language, LANGUAGE_LABELS['Deutsch'])
 
     # Combine labels while preserving order (command labels first)
@@ -275,9 +278,9 @@ def dataset_overview():
             'id': len(data) + 1,
             'label': label,
             'dataset_count': dataset_count,
-            'dataset_duration': str(round(dataset_duration))+'s',  
+            'dataset_duration': round(dataset_duration),  
             'training_count': training_count,
-            'training_duration': str(round(training_duration))+'s' 
+            'training_duration': round(training_duration) 
         })
     
     return jsonify(data)
@@ -386,67 +389,85 @@ def status():
         'is_error': is_error
     })
 
-# Add this new route to ttwebserver.py, preferably near other API routes
+# service to add device information
 @app.route('/api/device-info', methods=['POST'])
 def handle_device_info():
+    global device_registry
+
     try:
         # Get raw binary data
         raw_data = request.data
+
         
         # First byte is command, rest is the message
         if len(raw_data) < 1:
             return jsonify({'error': 'No data received'}), 400
             
         command = raw_data[0]
-        message = raw_data[1:].decode('utf-8').strip()
+        message = raw_data[1:].decode('utf-8', errors='replace').strip()
         
-        # Parse the device string (format: key:"value" key2:"value2")
-        device_info = {}
+        # Temporary dict for this update
+        device_data = {}
         current_key = None
         current_value = None
         in_quote = False
         
+        # Parse key:"value" pairs
         i = 0
         while i < len(message):
             if message[i] == '"' and not in_quote:
-                # Start of value
                 in_quote = True
                 current_value = ""
                 i += 1
             elif message[i] == '"' and in_quote:
-                # End of value
                 in_quote = False
                 if current_key:
-                    device_info[current_key] = current_value
+                    device_data[current_key] = current_value
                 i += 1
             elif in_quote:
                 current_value += message[i]
                 i += 1
             else:
-                # Looking for next key
                 if message[i] == ' ':
                     i += 1
                     continue
                     
-                # Start of new key
                 key_end = message.find(':', i)
                 if key_end == -1:
                     break
                     
                 current_key = message[i:key_end].strip()
                 i = key_end + 1
+
+        # Ensure we have a chip ID (use MAC if missing)
+        chip_id = device_data.get('chipid')
+        if not chip_id:
+            return jsonify({'error': 'No device identifier found'}), 400
         
-        # Log the received information
-        print("\n=== Received Device Information ===")
+        # Add timestamp
+        device_data['last_seen'] = datetime.now().isoformat()
+        
+        # Update or create device entry
+        if chip_id not in device_registry:
+            device_registry[chip_id] = device_data
+            print(f"New device registered: {chip_id}")
+        else:
+            device_registry[chip_id].update(device_data)
+        print(f"registerd")
+        
+        # Log the update
+        print(f"\n=== Device Update [{chip_id}] ===")
         print(f"Command: {command}")
-        for key, value in device_info.items():
+        for key, value in device_data.items():
             print(f"{key}: {value}")
+        print(f"Total devices registered: {len(device_registry)}")
         print("=================================")
         
         return jsonify({
             'success': True,
             'message': 'Device info received',
-            'data': device_info
+            'device_id': chip_id,
+            'data': device_data
         })
         
     except Exception as e:
@@ -456,6 +477,31 @@ def handle_device_info():
             'message': f'Error processing device info: {str(e)}'
         }), 500
 
+@app.route('/api/devices')
+def get_devices():
+    try:
+        # Create list of devices with owner and chip_id
+        devices = []
+        for chip_id, data in device_registry.items():
+            devices.append({
+                'id': chip_id,  # Internal identifier
+                'owner': data.get('owner', 'Unknown')
+            })
+        
+        # Sort by owner name
+        devices.sort(key=lambda x: x['owner'].lower())
+        
+        print("cmd: {devices}")
+        return jsonify({
+            'success': True,
+            'devices': devices
+        })
+    except Exception as e:
+        return jsonify({
+            'error': True,
+            'message': f'Failed to get devices: {str(e)}'
+        }), 500
+    
 if __name__ == '__main__':
     try:
         # Check directories exist

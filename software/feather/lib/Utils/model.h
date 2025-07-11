@@ -24,7 +24,7 @@ struct ModelConfigDataType {
   WifiCredential storedNetworks[MAX_NETWORKS];
   // which are assigned in round robin
   uint8_t nextNewNetwork;
-  // our serial number 
-  char serialNo[WIFI_CREDENTIAL_LEN];
+  // the owner 
+  char owner[WIFI_CREDENTIAL_LEN];
   
 }; 

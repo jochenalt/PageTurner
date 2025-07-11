@@ -6,7 +6,7 @@ void println(const char* format, ...);
 void print(const char* format, ...);
 
 
-#define VERSION 5
+#define VERSION 6
 const uint16_t version = VERSION;
 
 #if CONFIG_IDF_TARGET_ESP32S3

@@ -33,22 +33,21 @@ extern float cellVoltage;
 
 // Print help menu
 void printHelp() {
-  println("Tiny Turner %s V%i Bat %0.2fV serial:\"%s\"", config.model.serialNo, VERSION,cellVoltage, config.model.serialNo );
+  println("Tiny Turner %s V%i Bat %0.2fV owner:\"%s\"", config.model.owner, VERSION,cellVoltage, config.model.owner );
   println("   n       - start captive WiFi Portal");
-  println("   s       - set serial numbers");
+  println("   s       - set owner");
   println("   d       - send device information");
   println("   h       - help");
 }
 
-
 // Set serial number from command input
-void setSerialNumber(String newSerial) {
-    newSerial.trim();
+void setOwner(String newOwner) {
+    newOwner.trim();
     
-    if (newSerial.length() > 0) {
-      strncpy(config.model.serialNo, newSerial.c_str(), newSerial.length()+1);
+    if (newOwner.length() > 0) {
+      strncpy(config.model.owner, newOwner.c_str(), newOwner.length()+1);
       persConfig.writeConfig();
-      println("Serial number set to: %s", config.model.serialNo);
+      println("New owner: %s", config.model.owner);
     }
 }
 
@@ -76,7 +75,7 @@ void executeManualCommand() {
         break;
       case 's':
         if (command == "") {
-          println("Enter new serial number:");
+          println("Enter new owner:");
           addCmd(inputChar, false);
         } 
         break;
@@ -84,7 +83,7 @@ void executeManualCommand() {
       case 13:  // CR
         if (command.startsWith("s")) {
           Serial.println();
-          setSerialNumber(command.substring(1));
+          setOwner(command.substring(1));
           emptyCmd();
         } else if (command.startsWith("b")) {
           emptyCmd();

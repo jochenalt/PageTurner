@@ -4,8 +4,6 @@
     <title>Tiny Turner</title>
     <script src="https://cdn.webix.com/edge/webix.js"></script>
     <link rel="stylesheet" href="https://cdn.webix.com/edge/webix.css">
-    <script src="../codebase/webix.js"></script>   
-    <link href="../codebase/skins/webix.css" rel="stylesheet" type="text/css">
 </head>
 <body>
 <script>
@@ -56,9 +54,21 @@ webix.ready(
                                             view: "combo", 
                                             id: "device_selector",
                                             label: "Device",
-                                            options: ["12883", "12884"]
+                                            options: []
                                         },
-                                         { 
+                                        { 
+                                            view: "combo", 
+                                            id: "owner_selector",
+                                            label: "Owner", 
+                                            options: []
+                                        },
+                                        { 
+                                            view: "text", 
+                                            label: "ChipID", 
+                                            readonly: true,
+                                            id: "device_chip_id"
+                                        },
+                                        { 
                                             view: "text", 
                                             label: "Board", 
                                             readonly: true,
@@ -87,12 +97,6 @@ webix.ready(
                                             label: "Firmware", 
                                             readonly: true,
                                             id: "device_version"
-                                        },
-                                        { 
-                                            view: "text", 
-                                            label: "Serial", 
-                                            readonly: true,
-                                            id: "device_serial"
                                         },
                                         { 
                                             view: "text", 

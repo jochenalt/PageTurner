@@ -43,8 +43,10 @@ function loadDatasetOverview(language) {
                     showStatus(response.message, true);
                     $$("dataset_table").clearAll();
                 } else {
+                    // Ensure all required fields exist and are numbers
                     const cleanData = response.map(item => ({
-                        ...item,
+                        id: item.id,
+                        label: item.label,
                         dataset_count: item.dataset_count || 0,
                         dataset_duration: item.dataset_duration || 0,
                         training_count: item.training_count || 0,
@@ -317,6 +319,81 @@ function optimizeDataset() {
     });
 }
 
+
+// Helper function to format date
+function formatDate(isoString) {
+    if (!isoString) return "Never";
+    const date = new Date(isoString);
+    return date.toLocaleString();
+}
+
+function formatBytes(bytes) {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2) + ' ' + sizes[i]);
+}
+
+
+function loadDevices() {
+    // Check if the device_selector exists
+    if (!$$("device_selector")) {
+        console.error("device_selector not found");
+        return;
+    }
+
+    if (!$$("owner_selector")) {
+        console.error("owner_selector not found");
+        return;
+    }
+
+    webix.ajax().get("/api/devices", {
+        success: function(data, xml) {
+            const response = xml.json();
+            if (response.error) {
+                showStatus("Failed to load devices: " + response.message, true);
+                return;
+            }
+
+            // Create device options (unique devices with ID and owner)
+            const deviceOptions = response.devices.map(device => {
+                return {
+                    id: device.id,
+                    value: `${device.id} - ${device.owner || 'Unknown'}`,
+                    owner: `${device.owner} - ${device.id || 'Unknown'}`
+                };
+            });
+
+             // Create owner options (unique owners only)
+            const ownerMap = {};
+            response.devices.forEach(device => {
+                const owner = device.owner || 'Unknown';
+                ownerMap[owner] = true;
+            });
+            const ownerOptions = Object.keys(ownerMap).map(owner => {
+                return { id: owner, value: owner };
+            });
+
+            // Update device selector
+            if ($$("device_selector")) {
+                $$("device_selector").define("options", deviceOptions);
+                $$("device_selector").refresh();
+            }
+
+            // Update owner selector
+            if ($$("owner_selector")) {
+                $$("owner_selector").define("options", ownerOptions);
+                $$("owner_selector").refresh();
+            }
+        },
+        error: function(err) {
+            showStatus("Device list loading failed: " + err.status, true);
+        }
+    });
+}
+
+
 // Update the webix.ready function to use initLanguageFilter
 webix.ready(function() {
     // First verify all components exist
@@ -353,6 +430,17 @@ webix.ready(function() {
             }
         });
     })
+
+    $$("device_selector").attachEvent("onChange", function(newv, oldv){
+        const selected = this.getList().getItem(newv);
+        $$("device_form").setValues({
+            "Type": selected.board,
+            "Active": formatDate(selected.lastSeen)
+        });
+    });
+
+    loadDevices();
+    setInterval(loadDevices, 30000);
 
     // Initialize language filter and all comboboxes
     initLanguageFilter();

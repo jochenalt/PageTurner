@@ -19,7 +19,7 @@ void ModelConfigDataType::print() {
         println("   %i. wifi SSID %s", i,storedNetworks[i].ssid,storedNetworks[i].pass);
     }
     println("next new network gets in slot  %i",nextNewNetwork);
-    println("serial number is %s",serialNo);
+    println("owner is %s",owner);
 
 }; 
         
@@ -30,7 +30,7 @@ void ModelConfigDataType::setup() {
         storedNetworks[i].pass[0] = 0;
     }
     nextNewNetwork = 0;
-    serialNo[0]  = 0;
+    owner[0]  = 0;
 
 
     // @TODO remove that!!!
