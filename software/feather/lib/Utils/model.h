@@ -8,6 +8,8 @@
 typedef struct {
   char ssid[WIFI_CREDENTIAL_LEN];
   char pass[WIFI_CREDENTIAL_LEN];
+  char backend[WIFI_CREDENTIAL_LEN];
+
 } WifiCredential;
 
 // contains data stored in EPPROM
@@ -16,10 +18,13 @@ struct ModelConfigDataType {
   void setup();
 
   void println(const char* format, ...);
+  void addNetwork(const char* ssid, const char* pass, const char* backend = NULL);
 
-  void addNetwork(const char* ssid, const char* pass);
-
+  // store 3 Wifi networks
   WifiCredential storedNetworks[MAX_NETWORKS];
+  // which are assigned in round robin
   uint8_t nextNewNetwork;
+  // our serial number 
   char serialNo[WIFI_CREDENTIAL_LEN];
+  
 }; 

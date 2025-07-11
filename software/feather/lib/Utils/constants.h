@@ -6,7 +6,7 @@ void println(const char* format, ...);
 void print(const char* format, ...);
 
 
-#define VERSION 4
+#define VERSION 5
 const uint16_t version = VERSION;
 
 #if CONFIG_IDF_TARGET_ESP32S3
@@ -44,5 +44,5 @@ const uint16_t version = VERSION;
 #define SAMPLE_RATE 16000
 #define SAMPLES_IN_SNIPPET SAMPLE_RATE
 
-// network
-extern const char* serverUrl;
+// backend url or IP address
+extern String serverUrl;

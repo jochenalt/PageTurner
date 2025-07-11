@@ -41,11 +41,8 @@ void setup() {
   // show memory situation
   println("Flash  Size: %d KB", flashMem / (1024));
   println("PSRAM  Size: %d KB", PSRAMMem / (1024));
-  println("EEPROM Size: %d B",  EEPROM.length());
+  println("EEPROM Size: %d B",  EEPROM.length()); // requires to have called persConfig.setup() beforehand
  
-  // use the blinking LED
-  pinMode(LED_RECORDING_PIN, OUTPUT);
-
   // print content of EEPROM
   config.model.print();
  
@@ -59,7 +56,7 @@ void setup() {
 
 void loop() {
   // measure the battery 
-  // readBatMonitor(cellVoltage, cellPercentage);
+  readBatMonitor(cellVoltage, cellPercentage);
 
   // Process any manual serial commands
   executeManualCommand();

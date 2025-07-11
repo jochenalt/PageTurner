@@ -5,6 +5,9 @@ import os
 import librosa
 from threading import Thread
 import time
+import shutil
+from pydub import AudioSegment
+from datetime import datetime
 
 
 app = Flask(__name__)
@@ -125,10 +128,6 @@ def populate_folder_mapping_stats():
 
 def optimise_dataset():
     """Copy and convert files from ./dataset to ./trainingdataset, splitting >1s files into 1s WAV segments"""
-    import shutil
-    from pydub import AudioSegment
-    import os
-    from datetime import datetime
     
     # Constants
     SEGMENT_LENGTH_MS = 1000  # 1 second in milliseconds
@@ -386,6 +385,76 @@ def status():
         'message': message,
         'is_error': is_error
     })
+
+# Add this new route to ttwebserver.py, preferably near other API routes
+@app.route('/api/device-info', methods=['POST'])
+def handle_device_info():
+    try:
+        # Get raw binary data
+        raw_data = request.data
+        
+        # First byte is command, rest is the message
+        if len(raw_data) < 1:
+            return jsonify({'error': 'No data received'}), 400
+            
+        command = raw_data[0]
+        message = raw_data[1:].decode('utf-8').strip()
+        
+        # Parse the device string (format: key:"value" key2:"value2")
+        device_info = {}
+        current_key = None
+        current_value = None
+        in_quote = False
+        
+        i = 0
+        while i < len(message):
+            if message[i] == '"' and not in_quote:
+                # Start of value
+                in_quote = True
+                current_value = ""
+                i += 1
+            elif message[i] == '"' and in_quote:
+                # End of value
+                in_quote = False
+                if current_key:
+                    device_info[current_key] = current_value
+                i += 1
+            elif in_quote:
+                current_value += message[i]
+                i += 1
+            else:
+                # Looking for next key
+                if message[i] == ' ':
+                    i += 1
+                    continue
+                    
+                # Start of new key
+                key_end = message.find(':', i)
+                if key_end == -1:
+                    break
+                    
+                current_key = message[i:key_end].strip()
+                i = key_end + 1
+        
+        # Log the received information
+        print("\n=== Received Device Information ===")
+        print(f"Command: {command}")
+        for key, value in device_info.items():
+            print(f"{key}: {value}")
+        print("=================================")
+        
+        return jsonify({
+            'success': True,
+            'message': 'Device info received',
+            'data': device_info
+        })
+        
+    except Exception as e:
+        print(f"Error processing device info: {str(e)}")
+        return jsonify({
+            'error': True,
+            'message': f'Error processing device info: {str(e)}'
+        }), 500
 
 if __name__ == '__main__':
     try:

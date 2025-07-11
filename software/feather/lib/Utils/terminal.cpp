@@ -27,8 +27,9 @@ extern float cellVoltage;
 
 // Print help menu
 void printHelp() {
-  println("Tiny Turner %s V%i Bat %0.2fV", config.model.serialNo, VERSION,cellVoltage );
+  println("Tiny Turner %s V%i Bat %0.2fV serial:%s", config.model.serialNo, VERSION,cellVoltage, config.model.serialNo );
   println("   n       - start captive WiFi Portal");
+  println("   d       - send device information");
   println("   h       - help");
 }
 
@@ -47,6 +48,9 @@ void executeManualCommand() {
     switch (inputChar) {
       case 'n':
         if (command == "") startCaptivePortal(); else addCmd(inputChar);
+        break;
+      case 'd':
+        if (command == "") sendDevice(); else addCmd(inputChar);
         break;
       case 'h':
         if (command == "") printHelp(); else addCmd(inputChar);

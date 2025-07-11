@@ -31,15 +31,22 @@ void ModelConfigDataType::setup() {
     }
     nextNewNetwork = 0;
     serialNo[0]  = 0;
+
+
+    // @TODO remove that!!!
+    addNetwork("lorem ipsum dolor sit amet","7386801780590940", "172.20.101.7");
 }
 
-void ModelConfigDataType::addNetwork(const char* ssid, const char* pass) {
-
+void ModelConfigDataType::addNetwork(const char* ssid, const char* pass, const char* backendIP) {
   // Store new network
   strncpy(storedNetworks[nextNewNetwork].ssid, ssid, WIFI_CREDENTIAL_LEN);
   strncpy(storedNetworks[nextNewNetwork].pass, pass, WIFI_CREDENTIAL_LEN);
+  if (backendIP != NULL) {
+      strncpy(storedNetworks[nextNewNetwork].backend, backendIP, WIFI_CREDENTIAL_LEN);
+  } else {
+      strncpy(storedNetworks[nextNewNetwork].backend, "www.tiny-turner.com", WIFI_CREDENTIAL_LEN);
+  }
   
   nextNewNetwork = (nextNewNetwork+1) % MAX_NETWORKS;
-  printf("Saved network ""%s""/""%s"" (Slot %d)\n", ssid, pass, nextNewNetwork);
+  printf("Saved network ""%s""/""%s""/%s (Slot %d)\n", ssid, pass, backendIP, nextNewNetwork);
 }
-
