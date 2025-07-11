@@ -453,7 +453,7 @@ webix.ready(function() {
 });
 
     loadDevices();
-    setInterval(loadDevices, 30000);
+    setInterval(loadDevices, 10000);
 
     // Initialize language filter and all comboboxes
     initLanguageFilter();
