@@ -1,9 +1,10 @@
-#include <Wire.h>
-#include "Adafruit_MAX1704X.h"
-#include "Adafruit_LC709203F.h"
 #include "constants.h"
 
 #if BOARD_IS_FEATHER_S3
+#include <Wire.h>
+#include "Adafruit_MAX1704X.h"
+#include "Adafruit_LC709203F.h"
+
 Adafruit_MAX17048 maxlipo;
 Adafruit_LC709203F lc;
 #endif

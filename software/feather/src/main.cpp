@@ -11,6 +11,7 @@
 #include "network.h"
 #include "EEPROMStorage.h"
 #include "terminal.h"
+#include "boardneopixel.h"
 
 // Operating Modes
 enum ModeType { MODE_NONE, MODE_PRODUCTION, MODE_RECORDING, MODE_STREAMING };
@@ -23,6 +24,9 @@ float cellVoltage, cellPercentage;
 void setup() {
   Serial.begin(115200);
   while (!Serial) delay(10);    // wait until serial monitor opens
+
+  // set Neopixel
+  initNeoPixel();
 
   // initialise the on-board battery monitor
   initBatteryMonitor();
@@ -47,31 +51,19 @@ void setup() {
  
   // set up the Wifi
   setupNetwork();
+
+  // set neopixel to production mode
+  setNeoPixelMode(PIX_PRODUCTION_MODE);
 }
 
-
-// let the recording light lethargically blink
-void updateModeLED() {
-  if ((mode == MODE_RECORDING) || (mode == MODE_STREAMING)) {
-    analogWrite(LED_RECORDING_PIN, ANALOG_WRITE_MAX);
-  }
-  else 
-    if (mode == MODE_PRODUCTION) {
-      // lethargic blinking, like an "ON AIR" sign
-      int val = ((2000 - millis() % 2000) * ANALOG_WRITE_MAX) / 2000;
-      analogWrite(LED_RECORDING_PIN, val);
-   } else {
-      analogWrite(LED_RECORDING_PIN,0 );
-   }
-}
 
 void loop() {
   // measure the battery 
-  readBatMonitor(cellVoltage, cellPercentage);
+  // readBatMonitor(cellVoltage, cellPercentage);
 
   // Process any manual serial commands
   executeManualCommand();
 
-  // let it blink depending on the mode
-  updateModeLED();
+  // update the neopixel 
+  loopNeoPixel();
 }

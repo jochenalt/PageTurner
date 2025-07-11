@@ -21,6 +21,9 @@ const uint16_t version = VERSION;
 #define VBAT_PIN A13
 #endif
 
+// onboard neopixel
+#define NUMPIXELS      1     // Only one onboard NeoPixel
+
 #define LED_RECORDING_PIN BUILTIN_LED
 
 // for the analog pins: this is the max value

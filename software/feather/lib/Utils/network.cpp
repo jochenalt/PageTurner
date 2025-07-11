@@ -9,12 +9,12 @@ bool tryKnownNetworks() {
   for (int i = 0; i < MAX_NETWORKS; i++) {
     if (strlen(config.model.storedNetworks[i].ssid) == 0) continue;
     
-    Serial.printf("Trying: %s\n", config.model.storedNetworks[i].ssid);
+    println("Trying: %s", config.model.storedNetworks[i].ssid);
     WiFi.begin(config.model.storedNetworks[i].ssid, config.model.storedNetworks[i].pass);
     
     if (WiFi.waitForConnectResult(10000) == WL_CONNECTED) {
       persConfig.writeConfig();
-      Serial.printf("Connected to: %s\n", WiFi.SSID().c_str());
+      println("Connected to: %s", WiFi.SSID().c_str());
       return true;
     }
   }
@@ -22,12 +22,14 @@ bool tryKnownNetworks() {
 }
 
 void startCaptivePortal() {
-  WiFiManagerParameter custom_text("<p>Enter your Tiny Turners serial number</p>");
-  wm.addParameter(&custom_text);
 
   char serial_field[WIFI_CREDENTIAL_LEN] = "";
-    WiFiManagerParameter custom_serial("serial", "SERIAL",serial_field, WIFI_CREDENTIAL_LEN);
+
+  WiFiManagerParameter custom_serial("serial", "SERIAL",serial_field, WIFI_CREDENTIAL_LEN);
   if (config.model.serialNo[0] == 0) {
+    WiFiManagerParameter custom_text("<p>Enter the serial number of your Tiny Turner</p>");
+    wm.addParameter(&custom_text);
+
     wm.addParameter(&custom_serial);
   } else {
     String s = String("<p>Your serial number is ") + String(config.model.serialNo) + String("</p>");
