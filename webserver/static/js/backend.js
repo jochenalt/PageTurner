@@ -294,8 +294,12 @@ function initLanguageFilter() {
     });
 
     $$("label_filter").attachEvent("onChange", function(newv) {
-        updateDeviceLabel(newv);
+        // updateDeviceLabel(newv);
         loadAudioFiles();  // This should call loadAudioFiles, not loadDatasetOverview
+    });
+
+    $$("rec_label_filter").attachEvent("onChange", function(newv) {
+        updateDeviceLabel(newv);
     });
     
     // Load initial data
@@ -381,7 +385,16 @@ function updateDeviceList(devices) {
     // Update device selector
     $$("device_selector").define("options", deviceOptions);
     $$("device_selector").refresh();
-    
+
+    // if we have only one device, select that
+    if (devices || devices.length == 1) {
+        const singleDevice = devices[0];
+        $$("device_selector").setValue(singleDevice.id);
+        loadDeviceDetails(singleDevice.id);  // Load details immediately
+        manageDeviceWebSocket(singleDevice.id);  // Connect WebSocket
+        showStatus(`Auto-selected device: ${singleDevice.id}`);
+    } 
+
     showStatus(`Device list updated (${devices.length} devices)`);
 }
 
@@ -481,10 +494,21 @@ function updateDeviceLanguage(language) {
 function updateDeviceLabel(label) {
     const deviceId = $$("device_chip_id").getValue();
     if (deviceId) {
-        webix.ajax().post("/api/session/label", {
+        webix.ajax().headers({
+            "Content-Type": "application/json"
+        }).post("/api/session/label", JSON.stringify({
             chip_id: deviceId,
             label: label
+        }), {
+            success: function(response) {
+                showStatus("Label updated successfully");
+            },
+            error: function(err) {
+                showStatus("Failed to update label: " + (err.response?.json?.message || err.status), true);
+            }
         });
+    } else {
+        showStatus("Error: You need to select a device first", true);
     }
 }
 

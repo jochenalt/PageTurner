@@ -258,7 +258,7 @@ def serve_recording(filename):
         
     except Exception as e:
         return str(e), 500
-        
+
 @app.route('/')
 def index():
     # Verify dataset directory exists before rendering
@@ -637,33 +637,28 @@ def receive_audio(device_id):
         if not device_id or  device_id == "none":
             return jsonify({'error': 'Device not passed found'}), 404
 
-        # Get the raw audio data from the request
-        raw_data = request.data
-        
-        # Initialize default storage location
-        storage_dir = RECORDING_DIR
-        filename_prefix = "sample"
-        subfolder = None
-        
         # Check if we have device session with label
         device_session = session_manager.get_or_create_session(device_id)
 
-        if device_session.get('label') and device_session['label'] != 'All labels':
-            print(f"sessioN!")
-
-            # Map UI label to folder name using FOLDER_MAPPING
-            label = device_session['label']
-            print(f"label {label}!")
-
+        # Use the label from the session if available and not "No label"
+        label = device_session.get('label')
+        if not label or label == "No label":
+            label = "No label"
+            subfolder = None
+            storage_dir = RECORDING_DIR
+            filename_prefix = "sample"
+        else:
+            # Map UI label to folder name
             subfolder = next((f for n, f in zip(FOLDER_MAPPING['name'], FOLDER_MAPPING['label']) 
-                           if n == label), None)
+                          if n == label), None)
             
             if subfolder:
-                print(f"makedir={storage_dir}")
                 storage_dir = os.path.join(DATASET_DIR, subfolder)
                 filename_prefix = label.lower()
                 os.makedirs(storage_dir, exist_ok=True)
-
+            else:
+                storage_dir = RECORDING_DIR
+                filename_prefix = "sample"
         
         # Generate unique filename
         counter = 1
@@ -681,10 +676,16 @@ def receive_audio(device_id):
             wav_file.setnchannels(1)
             wav_file.setsampwidth(BYTES_PER_SAMPLE)
             wav_file.setframerate(SAMPLE_RATE)
-            wav_file.writeframes(raw_data)
+            wav_file.writeframes(request.data)
         
+        # Update recording history with correct relative path
+        if subfolder:
+            relative_path = f"{subfolder}/{filename}"
+        else:
+            relative_path = f"../recording/{filename}"
+
+
         # Update recording history if device is specified
-        relative_path = os.path.relpath(filepath, DATASET_DIR)
         timestamp = datetime.now().isoformat()
         session_manager.update_recording_history(device_id, relative_path)
         
@@ -740,13 +741,18 @@ def update_session_label():
         chip_id = data.get('chip_id')
         label = data.get('label')
         
-        if not chip_id or not label:
-            return jsonify({'error': 'Missing chip_id or label'}), 400
+        if not chip_id:
+            return jsonify({'error': 'Missing chip_id'}), 400
             
-        session_manager.update_label(chip_id, label)
-        return jsonify({'success': True})
+        # Only update if it's a valid label (not "No label")
+        if label and label != "No label":
+            session_manager.update_label(chip_id, label)
+            return jsonify({'success': True})
+        else:
+            return jsonify({'success': True, 'message': 'No label update needed'})
         
     except Exception as e:
+        print(f"{str(e)}")
         return jsonify({'error': str(e)}), 500
 
 
