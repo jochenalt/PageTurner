@@ -24,11 +24,11 @@ function updateComboboxes(language) {
     const labels = LANGUAGE_LABELS[language] || LANGUAGE_LABELS['Deutsch'];
     
     // Update Recording Panel combobox
-    $$("rec_label_filter").define("options", ["All Labels", ...commands, ...labels]);
+    $$("rec_label_filter").define("options", ["No label", ...commands, ...labels]);
     $$("rec_label_filter").refresh();
     
     // Update Audio Dataset Browser combobox
-    $$("label_filter").define("options", ["All Labels", ...commands, ...labels]);
+    $$("label_filter").define("options", ["All labels", ...commands, ...labels]);
     $$("label_filter").refresh();
 }
 
