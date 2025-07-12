@@ -441,6 +441,18 @@ function updateDeviceLabel(label) {
     }
 }
 
+// Update the formatRecordingTimestamp function
+function formatRecordingTimestamp(timestamp) {
+    if (!timestamp) return "Never";
+    try {
+        const date = new Date(timestamp);
+        return date.toLocaleString();
+    } catch (e) {
+        return "Invalid date";
+    }
+}
+
+
 // Add this function to update recording history display
 function updateRecordingHistory(deviceId) {
     if (!deviceId) {
@@ -476,6 +488,67 @@ function updateRecordingHistory(deviceId) {
 }
 
 
+// Add these variables at the top
+let devicePollInterval = null;
+const POLL_INTERVAL = 5000; // 5 seconds
+
+// Add this function to start/stop polling
+function manageDevicePolling(deviceId) {
+    // Clear any existing interval
+    if (devicePollInterval) {
+        clearInterval(devicePollInterval);
+        devicePollInterval = null;
+    }
+    
+    // Start new polling if device is selected
+    if (deviceId) {
+        // Immediate first update
+        pollDeviceDetails(deviceId);
+        
+        // Set up regular polling
+        devicePollInterval = setInterval(() => {
+            pollDeviceDetails(deviceId);
+        }, POLL_INTERVAL);
+    }
+}
+
+// Add this function to handle the polling request
+function pollDeviceDetails(deviceId) {
+    const settings = getCurrentSettings();
+    
+    webix.ajax().headers({
+        "X-Current-Language": settings.language,
+        "X-Current-Label": settings.label
+    }).get(`/api/device/device=${encodeURIComponent(deviceId)}`, {
+        success: function(data, xml) {
+            const device = xml.json();
+            if (device.error) {
+                showStatus("Failed to load device: " + device.message, true);
+                return;
+            }
+            
+            updateDeviceInfo(device);
+            
+            // Update recording history if available
+            if (device.recording_history) {
+                $$("last_recording_time").setValue(
+                    device.recording_history.last_timestamp 
+                        ? formatRecordingTimestamp(device.recording_history.last_timestamp)
+                        : "No recordings yet"
+                );
+                
+                $$("last_recording_path").setValue(
+                    device.recording_history.last_filename 
+                        ? `./${device.recording_history.last_filename}`
+                        : ""
+                );
+            }
+        },
+        error: function(err) {
+            console.error("Device poll error:", err);
+        }
+    });
+}
 
 // Update the webix.ready function to use initLanguageFilter
 webix.ready(function() {
@@ -514,15 +587,19 @@ webix.ready(function() {
         });
     })
 
-    // Device selector change handler
+    // Modify the device selection handler
     $$("device_selector").attachEvent("onChange", function(newv) {
-    if (newv) {
-        // Load details for the selected device
-         $$("device_selector").setValue(newv);
-        loadDeviceDetails(newv);
-        updateDeviceRecordingHistory(newv);    
-    }
-});
+        if (newv) {
+            // Load details for the selected device
+            $$("device_selector").setValue(newv);
+            loadDeviceDetails(newv);
+            manageDevicePolling(newv); // Start polling for this device
+        } else {
+            manageDevicePolling(null); // Stop polling
+            $$("last_recording_time").setValue("No device selected");
+            $$("last_recording_path").setValue("");
+        }
+    });
 
     loadDevices();
     setInterval(loadDevices, 10000);

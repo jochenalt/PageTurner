@@ -520,22 +520,25 @@ def get_devices():
 def get_device_details(device_id):
     try:
         # Get current UI settings from request headers
-        print(f"{device_id}")
         current_language = request.headers.get('X-Current-Language')
-        print(f"{current_language}")
 
         current_label = request.headers.get('X-Current-Label')
-        print(f"{current_label}")
         
         # Update device session with current settings
         session_manager.update_language(device_id,language=current_language)
         session_manager.update_label(device_id,label=current_label)
 
-        print(f"session updated")
         
         device = device_registry.get(device_id)
         if not device:
             return jsonify({'error': 'Device not found'}), 404
+
+        # Get recording history from session
+        session = session_manager.get_or_create_session(device_id)
+        recording_history = {
+            'last_filename': session.get('last_recorded_filename'),
+            'last_timestamp': session.get('last_recording_timestamp')
+        } if session else None
             
         return jsonify({
             'id': device_id,
@@ -545,7 +548,8 @@ def get_device_details(device_id):
             'psram': device.get('psram', 'Unknown'),
             'heap': device.get('freeheap', 'Unknown'),
             'version': device.get('version', 'Unknown'),
-            'last_seen': device.get('last_seen')
+            'last_seen': device.get('last_seen'),
+            'recording_history': recording_history
         })
     except Exception as e:
         print(f"{str(e)}")
