@@ -3,6 +3,7 @@
 #include "constants.h"
 #include "EEPROMStorage.h"
 #include "network.h"
+#include "soundtools.h"
 
 // Flags and buffers for command processing
 bool commandPending = false;                                // true if a command is in progress
@@ -36,6 +37,7 @@ void printHelp() {
   println("Tiny Turner %s V%i Bat %0.2fV owner:\"%s\"", config.model.owner, VERSION,cellVoltage, config.model.owner );
   println("   n       - start captive WiFi Portal");
   println("   s       - set owner");
+  println("   w       - send sine wave audio snippet");
   println("   d       - send device information");
   println("   h       - help");
 }
@@ -72,6 +74,15 @@ void executeManualCommand() {
         break;
       case 'h':
         if (command == "") printHelp(); else addCmd(inputChar);
+        break;
+      case 'w':
+        if (command == "") {
+          int16_t* buffer = new int16_t [SAMPLE_RATE] ; 
+          generateSineWave(buffer,SAMPLE_RATE);
+          sendAudioSnippet(buffer, SAMPLE_RATE); 
+          delete buffer;
+        }
+          else addCmd(inputChar);
         break;
       case 's':
         if (command == "") {

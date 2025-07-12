@@ -1,10 +1,10 @@
 #include "constants.h"
+#include <esp_sleep.h>
 
 #if BOARD_IS_FEATHER_S3
 #include <Wire.h>
 #include "Adafruit_MAX1704X.h"
 #include "Adafruit_LC709203F.h"
-
 Adafruit_MAX17048 maxlipo;
 Adafruit_LC709203F lc;
 #endif
@@ -57,6 +57,36 @@ void initBatteryMonitor() {
     batMonitorInitialised = true;
   }
 #endif
+
+  pinMode(POWER_BUTTON_PIN, INPUT_PULLUP);
+
+  /*
+  // Check wakeup reason, and configure the boot button as wakup source
+  esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
+  if(wakeup_reason == ESP_SLEEP_WAKEUP_EXT0) {
+    println("Tiny Turner is awake!");
+  }
+  */
+  
+}
+
+// after 3 seconds of the pushing the button tiny turner turns off
+void loopPowerButton() {
+  static uint32_t pushedSince = 0; 
+  if (digitalRead(POWER_BUTTON_PIN) == LOW) {
+    if (pushedSince == 0) {
+      pushedSince = millis();
+    } else {
+      if (millis() - pushedSince > 3000) {
+          println("going to sleep");
+          delay(500);
+          esp_sleep_enable_ext0_wakeup((gpio_num_t)POWER_BUTTON_PIN, LOW); 
+          esp_deep_sleep_start();
+      }
+    }
+  } else {
+    pushedSince = 0;
+  }
 }
 
 void readBatMonitor(float &cellVoltage, float &cellPercentage) {
