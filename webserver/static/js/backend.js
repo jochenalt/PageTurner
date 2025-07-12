@@ -264,12 +264,14 @@ function loadAudioFiles() {
 
 function initLanguageFilter() {
     $$("language_filter").attachEvent("onChange", function(newv) {
+        updateDeviceLanguage(newv);
         loadDatasetOverview(newv);
         updateComboboxes(newv);
         loadAudioFiles();  // Also reload audio files when language changes
     });
 
     $$("label_filter").attachEvent("onChange", function(newv) {
+        updateDeviceLabel(newv);
         loadAudioFiles();  // This should call loadAudioFiles, not loadDatasetOverview
     });
     
@@ -383,10 +385,22 @@ function updateDeviceInfo(device) {
     $$("device_lastseen").setValue(formatDate(device.last_seen) );
 }
 
+function getCurrentSettings() {
+    return {
+        language: $$("language_filter").getValue(),
+        label: $$("label_filter").getValue()
+    };
+}
+
+
 function loadDeviceDetails(deviceId) {
     showStatus(`Loading device ${deviceId}...`);
+    const settings = getCurrentSettings();
     
-    webix.ajax().get(`/api/device/device=${encodeURIComponent(deviceId)}`, {
+    webix.ajax().headers({
+        "X-Current-Language": settings.language,
+        "X-Current-Label": settings.label
+    }).get(`/api/device/device=${encodeURIComponent(deviceId)}`, {        
         success: function(data, xml) {
             const device = xml.json();
             if (device.error) {
@@ -404,6 +418,64 @@ function loadDeviceDetails(deviceId) {
         }
     });
 }
+
+// Update language/label handlers to always specify device if available
+function updateDeviceLanguage(language) {
+    const deviceId = $$("device_chip_id").getValue();
+    if (deviceId) {
+        webix.ajax().post("/api/session/language", {
+            chip_id: deviceId,
+            language: language
+        });
+    }
+}
+
+
+function updateDeviceLabel(label) {
+    const deviceId = $$("device_chip_id").getValue();
+    if (deviceId) {
+        webix.ajax().post("/api/session/label", {
+            chip_id: deviceId,
+            label: label
+        });
+    }
+}
+
+// Add this function to update recording history display
+function updateRecordingHistory(deviceId) {
+    if (!deviceId) {
+        $$("last_recording_time").setValue("No device selected");
+        $$("last_recording_path").setValue("");
+        return;
+    }
+
+    webix.ajax().get(`/api/device/${deviceId}/recording-history`, {
+        success: function(data, xml) {
+            const history = xml.json();
+            if (history.error) {
+                showStatus("Failed to load recording history: " + history.message, true);
+                return;
+            }
+
+            $$("last_recording_time").setValue(
+                history.last_timestamp 
+                    ? formatRecordingTimestamp(history.last_timestamp)
+                    : "No recordings yet"
+            );
+            
+            $$("last_recording_path").setValue(
+                history.last_filename 
+                    ? `./${history.last_filename}`
+                    : ""
+            );
+        },
+        error: function(err) {
+            showStatus("Failed to load recording history", true);
+        }
+    });
+}
+
+
 
 // Update the webix.ready function to use initLanguageFilter
 webix.ready(function() {
@@ -448,7 +520,7 @@ webix.ready(function() {
         // Load details for the selected device
          $$("device_selector").setValue(newv);
         loadDeviceDetails(newv);
-        
+        updateDeviceRecordingHistory(newv);    
     }
 });
 
@@ -459,7 +531,6 @@ webix.ready(function() {
     initLanguageFilter();
     initAudioPlayer();
     loadAudioFiles();
-
 });
 
 

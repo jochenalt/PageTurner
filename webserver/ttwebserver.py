@@ -8,6 +8,9 @@ import time
 import shutil
 from pydub import AudioSegment
 from datetime import datetime
+import struct 
+import wave
+from DeviceSessionManager import DeviceSessionManager
 
 
 app = Flask(__name__)
@@ -16,14 +19,23 @@ app = Flask(__name__)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATASET_DIR = os.path.join(BASE_DIR, '../dataset')
 TRAINING_DIR = os.path.join(BASE_DIR, '../trainingdataset')
+RECORDING_DIR = os.path.join(BASE_DIR, '../recording')
+
+BYTES_PER_SAMPLE = 2
+SAMPLE_RATE = 16000
 
 # Check if dataset directory exists
 if not os.path.exists(DATASET_DIR):
-    raise FileNotFoundError(f"Dataset directory not found at {DATASET_DIR}. Please create it.")
-
-
-
+    os.makedirs(DATASET_DIR, exist_ok=True)
+if not os.path.exists(TRAINING_DIR):
+    os.makedirs(TRAINING_DIR, exist_ok=True)
+if not os.path.exists(RECORDING_DIR):
+    os.makedirs(RECORDING_DIR, exist_ok=True)
+    
 app = Flask(__name__, static_folder='static')
+
+# Initialize the session manager
+session_manager = DeviceSessionManager()
 
 # Add these routes to serve JS files
 @app.route('/js/<path:filename>')
@@ -443,6 +455,9 @@ def handle_device_info():
         if not chip_id:
             return jsonify({'error': 'No device identifier found'}), 400
         
+        # Initialize or update session
+        session_manager.get_or_create_session(chip_id)
+
         # Add timestamp
         device_data['last_seen'] = datetime.now().isoformat()
         
@@ -489,7 +504,6 @@ def get_devices():
         # Sort by owner name
         devices.sort(key=lambda x: x['owner'].lower())
         
-        print("cmd: {devices}")
         return jsonify({
             'success': True,
             'devices': devices
@@ -505,12 +519,25 @@ def get_devices():
 @app.route('/api/device/device=<device_id>')
 def get_device_details(device_id):
     try:
+        # Get current UI settings from request headers
+        print(f"{device_id}")
+        current_language = request.headers.get('X-Current-Language')
+        print(f"{current_language}")
+
+        current_label = request.headers.get('X-Current-Label')
+        print(f"{current_label}")
+        
+        # Update device session with current settings
+        session_manager.update_language(device_id,language=current_language)
+        session_manager.update_label(device_id,label=current_label)
+
+        print(f"session updated")
+        
         device = device_registry.get(device_id)
         if not device:
-            print(f"device {device_id} not found")
-            return jsonify({'error: Device not found ': device_id }), 404
+            return jsonify({'error': 'Device not found'}), 404
             
-        s =   jsonify({
+        return jsonify({
             'id': device_id,
             'owner': device.get('owner', 'Unknown'),
             'board': device.get('board', 'Unknown'),
@@ -520,26 +547,127 @@ def get_device_details(device_id):
             'version': device.get('version', 'Unknown'),
             'last_seen': device.get('last_seen')
         })
-        print(f"device: {s}")
-        return s
+    except Exception as e:
+        print(f"{str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/audio/<device_id>', methods=['POST'])
+def receive_audio(device_id):
+    try:
+        if not device_id or  device_id == "none":
+            return jsonify({'error': 'Device not passed found'}), 404
+
+        # Get the raw audio data from the request
+        raw_data = request.data
+        
+        # Initialize default storage location
+        storage_dir = RECORDING_DIR
+        filename_prefix = "sample"
+        subfolder = None
+        
+        # Check if we have device session with label
+        device_session = session_manager.get_or_create_session(device_id)
+
+        if device_session.get('label') and device_session['label'] != 'All Labels':
+            print(f"sessioN!")
+
+            # Map UI label to folder name using FOLDER_MAPPING
+            label = device_session['label']
+            print(f"label {label}!")
+
+            subfolder = next((f for n, f in zip(FOLDER_MAPPING['name'], FOLDER_MAPPING['label']) 
+                           if n == label), None)
+            
+            if subfolder:
+                print(f"makedir={storage_dir}")
+                storage_dir = os.path.join(DATASET_DIR, subfolder)
+                filename_prefix = label.lower()
+                os.makedirs(storage_dir, exist_ok=True)
+
+        
+        # Generate unique filename
+        counter = 1
+        while True:
+            filename = f"{filename_prefix}_{counter:04d}.wav"
+            filepath = os.path.join(storage_dir, filename)
+            if not os.path.exists(filepath):
+                break
+            counter += 1
+        app.logger.info(f"storing in  {filepath}");
+
+        
+        # Write as a WAV file (16-bit mono, 16kHz)
+        with wave.open(filepath, 'wb') as wav_file:
+            wav_file.setnchannels(1)
+            wav_file.setsampwidth(BYTES_PER_SAMPLE)
+            wav_file.setframerate(SAMPLE_RATE)
+            wav_file.writeframes(raw_data)
+
+        # Update recording history if device is specified
+        relative_path = os.path.relpath(filepath, DATASET_DIR)
+        session_manager.update_recording_history(device_id, relative_path)
+            
+        # Return path relative to dataset directory for consistency
+        relative_path = os.path.relpath(filepath, DATASET_DIR)
+        return jsonify({
+            'success': True
+        }), 200
+        
+    except Exception as e:
+        return jsonify({
+            'error': True,
+            'message': f"Error processing audio: {str(e)}"
+        }), 500
+
+@app.route('/api/session/language', methods=['POST'])
+def update_session_language():
+    try:
+        data = request.json
+        chip_id = data.get('chip_id')
+        language = data.get('language')
+        
+        if not chip_id or not language:
+            return jsonify({'error': 'Missing chip_id or language'}), 400
+            
+        session_manager.update_language(chip_id, language)
+        return jsonify({'success': True})
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/session/label', methods=['POST'])
+def update_session_label():
+    try:
+        data = request.json
+        chip_id = data.get('chip_id')
+        label = data.get('label')
+        
+        if not chip_id or not label:
+            return jsonify({'error': 'Missing chip_id or label'}), 400
+            
+        session_manager.update_label(chip_id, label)
+        return jsonify({'success': True})
+        
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 
 
+
+def cleanup_sessions():
+    """Periodically clean up inactive sessions"""
+    while True:
+        session_manager.cleanup_inactive_sessions()
+        time.sleep(3600)  # Run once per hour
+
+
 if __name__ == '__main__':
     try:
-        # Check directories exist
-        if not os.path.exists(DATASET_DIR):
-            print(f"ERROR: Dataset directory not found at {DATASET_DIR}")
-            print("Please create the directory and populate it with audio files")
-        
-        if not os.path.exists(TRAINING_DIR):
-            print(f"WARNING: Training directory not found at {TRAINING_DIR}")
-            print("Some features may not work without training data")
-        
         # calculate the content
         Thread(target=populate_folder_mapping_stats, daemon=True).start()
+
+        # cleanup unused session
+        Thread(target=cleanup_sessions, daemon=True).start()
 
         app.run(host="0.0.0.0", port=8000, debug=True)
     except Exception as e:

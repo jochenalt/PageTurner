@@ -101,3 +101,4 @@ dataset/
 trainingdataset/
 webserver/__pycache__/
 new/
+recording/
