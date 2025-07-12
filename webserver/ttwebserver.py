@@ -377,7 +377,7 @@ def audio_files():
                                 'name': file,
                                 'modified': datetime.fromtimestamp(stat.st_mtime).strftime('%d.%m.%y %H:%M:%S'),
                                 'samples': str(int(duration*16))+'k',
-                                'duration': str(round(duration, 2))+'s',
+                                'duration': round(duration, 2),
                                 'audioSrc': f'/dataset/{folder}/{file}'
                             })
         else:
@@ -401,7 +401,7 @@ def audio_files():
                                 'name': file,
                                 'modified': datetime.fromtimestamp(stat.st_mtime).strftime('%d.%m.%y %H:%M:%S'),
                                 'samples': str(int(duration*16))+'k',
-                                'duration': str(round(duration, 2))+'s',
+                                'duration': round(duration, 2),
                                 'audioSrc': f'/dataset/{folder_name}/{file}'
                             })
         

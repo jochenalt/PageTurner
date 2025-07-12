@@ -101,10 +101,13 @@ function initAudioPlayer() {
 }
 
 function formatTime(seconds) {
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
-    return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+    const sec = Math.round(parseFloat(seconds));
+    if (isNaN(sec) || sec < 0) return "0:00";
+    const minutes = Math.floor(sec / 60);
+    const remaining = (sec % 60).toString().padStart(2, '0');
+    return `${minutes}:${remaining}`;
 }
+
 
 // Add this with your other utility functions
 function updatePlayButton(rowId, isPlaying) {
@@ -264,7 +267,7 @@ function loadAudioFiles() {
                     name: file.name,
                     modified: file.modified,
                     samples: file.samples,
-                    duration: file.duration || 0,
+                    duration: formatDuration(file.duration) || 0,
                     playback: file.audioSrc
                 }));
                 
@@ -363,6 +366,13 @@ function formatBytes(bytes) {
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     // Fixed concatenation by using template literals
     return `${(bytes / Math.pow(k, i)).toFixed(2)} ${sizes[i]}`;
+}
+
+function formatDuration(duration) {
+    if (isNaN(duration) || duration === undefined || duration === null) {
+        return "0:00"; // Fallback for invalid durations
+    }
+    return formatTime(duration); // Reuse your existing formatTime function
 }
 
 let globalWebSocket = null;  // For device list updates
