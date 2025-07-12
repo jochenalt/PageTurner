@@ -1,19 +1,15 @@
 from datetime import datetime
-import math
-from flask import Flask, render_template, jsonify, request, send_from_directory, send_file
-import os
-import librosa
+import math, os, time, shutil,struct, wave, librosa
+from flask import Flask, render_template, json, jsonify, request, send_from_directory, send_file
 from threading import Thread
-import time
-import shutil
 from pydub import AudioSegment
 from datetime import datetime
-import struct 
-import wave
 from DeviceSessionManager import DeviceSessionManager
+from flask_sock import Sock
 
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder='static')
+sock = Sock(app)  # Add this line right after app initialization
 
 # Configuration
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -32,28 +28,9 @@ if not os.path.exists(TRAINING_DIR):
 if not os.path.exists(RECORDING_DIR):
     os.makedirs(RECORDING_DIR, exist_ok=True)
     
-app = Flask(__name__, static_folder='static')
 
 # Initialize the session manager
 session_manager = DeviceSessionManager()
-
-# Add these routes to serve JS files
-@app.route('/js/<path:filename>')
-def serve_js(filename):
-    return send_from_directory(os.path.join(app.static_folder, 'js'), filename)
-
-@app.route('/')
-def index():
-    # Verify dataset directory exists before rendering
-    if not os.path.exists(DATASET_DIR):
-        return render_template('error.html', 
-                            message=f"Dataset directory not found at {DATASET_DIR}"), 500
-    return render_template('index.html')
-
-@app.route('/favicon.ico')
-def favicon():
-    return send_from_directory(os.path.join(app.root_path, 'static'),
-                               'favicon.ico', mimetype='image/vnd.microsoft.icon')
 
 # Language mappings
 LANGUAGE_LABELS = {
@@ -86,7 +63,7 @@ def populate_folder_mapping_stats():
 
     # Create a dictionary to store stats for each unique folder label
     folder_stats = {}
-    
+
     # First pass: collect stats for each unique folder
     for i, folder_label in enumerate(FOLDER_MAPPING['label']):
         if folder_label not in folder_stats:
@@ -122,6 +99,7 @@ def populate_folder_mapping_stats():
             
             folder_stats[folder_label] = stats
     
+
     # Second pass: populate all entries in FOLDER_MAPPING
     for i, folder_label in enumerate(FOLDER_MAPPING['label']):
         stats = folder_stats.get(folder_label, {
@@ -143,6 +121,7 @@ def populate_folder_mapping_stats():
 
 
 def optimise_dataset():
+    print("optimize-dataset API called")
     """Copy and convert files from ./dataset to ./trainingdataset, splitting >1s files into 1s WAV segments"""
     
     # Constants
@@ -227,6 +206,46 @@ def optimise_dataset():
     # After processing, update the folder mapping
     populate_folder_mapping_stats()
     return True
+
+
+# WebSocket connection handler
+@sock.route('/api/ws/device-updates')
+def handle_device_ws(ws):
+    device_id = ws.receive()  # First message should be the device ID
+    if not device_id:
+        return
+    
+    # Register this connection for the device
+    session_manager.register_ws_connection(device_id, ws)
+    
+    try:
+        while True:
+            # Keep connection alive (client can send pings if needed)
+            ws.receive()  # This will block until client disconnects
+    except:
+        pass
+    finally:
+        session_manager.unregister_ws_connection(device_id, ws)
+
+# Add these routes to serve JS files
+@app.route('/js/<path:filename>')
+def serve_js(filename):
+    return send_from_directory(os.path.join(app.static_folder, 'js'), filename)
+
+@app.route('/')
+def index():
+    # Verify dataset directory exists before rendering
+    if not os.path.exists(DATASET_DIR):
+        return render_template('error.html', 
+                            message=f"Dataset directory not found at {DATASET_DIR}"), 500
+    return render_template('index.html')
+
+@app.route('/favicon.ico')
+def favicon():
+    return send_from_directory(os.path.join(app.root_path, 'static'),
+                               'favicon.ico', mimetype='image/vnd.microsoft.icon')
+
+
 
 @app.route('/api/optimize-dataset', methods=['POST'])
 def api_optimize_dataset():
@@ -476,6 +495,13 @@ def handle_device_info():
         print(f"Total devices registered: {len(device_registry)}")
         print("=================================")
         
+        # register websockets 
+        session_manager.broadcast_device_update(chip_id, {
+            'type': 'device_update',
+            'data': device_data
+        })
+    
+
         return jsonify({
             'success': True,
             'message': 'Device info received',
@@ -527,7 +553,6 @@ def get_device_details(device_id):
         # Update device session with current settings
         session_manager.update_language(device_id,language=current_language)
         session_manager.update_label(device_id,label=current_label)
-
         
         device = device_registry.get(device_id)
         if not device:
@@ -606,18 +631,36 @@ def receive_audio(device_id):
             wav_file.setsampwidth(BYTES_PER_SAMPLE)
             wav_file.setframerate(SAMPLE_RATE)
             wav_file.writeframes(raw_data)
-
+        
         # Update recording history if device is specified
         relative_path = os.path.relpath(filepath, DATASET_DIR)
+        timestamp = datetime.now().isoformat()
         session_manager.update_recording_history(device_id, relative_path)
+        
+        # Get current device data
+        device_data = device_registry.get(device_id, {})
+        
+        # Prepare update with proper structure
+        update_data = {
+            'type': 'device_update',
+            'data': {
+                **device_data,
+                'recording_history': {
+                    'last_filename': relative_path,
+                    'last_timestamp': timestamp
+                },
+                'last_seen': timestamp
+            }
+        }
+        
+        print(f"Broadcasting update for device {device_id}: {update_data}")  # More detailed logging
+        session_manager.broadcast_device_update(device_id, update_data)
             
-        # Return path relative to dataset directory for consistency
-        relative_path = os.path.relpath(filepath, DATASET_DIR)
         return jsonify({
             'success': True
         }), 200
-        
     except Exception as e:
+        print(f"Error in receive_audio: {str(e)}")
         return jsonify({
             'error': True,
             'message': f"Error processing audio: {str(e)}"
@@ -667,8 +710,9 @@ def cleanup_sessions():
 
 if __name__ == '__main__':
     try:
-        # calculate the content
-        Thread(target=populate_folder_mapping_stats, daemon=True).start()
+        if os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
+            # Only runs in the reloader process, not the initial boot
+            Thread(target=populate_folder_mapping_stats, daemon=True).start()
 
         # cleanup unused session
         Thread(target=cleanup_sessions, daemon=True).start()

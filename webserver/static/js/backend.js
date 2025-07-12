@@ -487,68 +487,86 @@ function updateRecordingHistory(deviceId) {
     });
 }
 
+// Add at the top of backend.js
+let deviceWebSocket = null;
 
-// Add these variables at the top
-let devicePollInterval = null;
-const POLL_INTERVAL = 5000; // 5 seconds
 
-// Add this function to start/stop polling
-function manageDevicePolling(deviceId) {
-    // Clear any existing interval
-    if (devicePollInterval) {
-        clearInterval(devicePollInterval);
-        devicePollInterval = null;
-    }
+function connectWebSocket(deviceId) {
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
+    const wsUrl = wsProtocol + window.location.host + '/api/ws/device-updates';
     
-    // Start new polling if device is selected
-    if (deviceId) {
-        // Immediate first update
-        pollDeviceDetails(deviceId);
+
+    deviceWebSocket = new WebSocket(wsUrl);
+    console.log('Attempting WebSocket connection to:', wsUrl);
+    deviceWebSocket.onopen = () => console.log('WebSocket connected successfully');
+    deviceWebSocket.onerror = (error) => console.error('WebSocket error:', error);
+    
+    deviceWebSocket.onopen = () => {
+        console.log('WebSocket connected for device:', deviceId);
+        // Send device ID as first message
+        deviceWebSocket.send(deviceId);
         
-        // Set up regular polling
-        devicePollInterval = setInterval(() => {
-            pollDeviceDetails(deviceId);
-        }, POLL_INTERVAL);
+        // Add ping interval
+        this.pingInterval = setInterval(() => {
+            if (deviceWebSocket.readyState === WebSocket.OPEN) {
+                deviceWebSocket.send('ping');
+            }
+        }, 30000);
+    };
+    
+    deviceWebSocket.onmessage = (event) => {
+        console.log('WebSocket message received:', event.data);
+        try {
+            const data = JSON.parse(event.data);
+            console.log('Parsed WebSocket data:', data);
+            if (data.type === 'device_update') {
+                updateDeviceInfo(data.data);
+                
+                if (data.data.recording_history) {
+                    $$("last_recording_time").setValue(
+                        data.data.recording_history.last_timestamp 
+                            ? formatRecordingTimestamp(data.data.recording_history.last_timestamp)
+                            : "No recordings yet"
+                    );
+                    
+                    $$("last_recording_path").setValue(
+                        data.data.recording_history.last_filename 
+                            ? `./${data.data.recording_history.last_filename}`
+                            : ""
+                    );
+                }
+            }
+        } catch (e) {
+            console.error('Error processing WebSocket message:', e);
+        }
+    };
+    
+    deviceWebSocket.onclose = (event) => {
+        console.log('WebSocket closed:', event.code, event.reason);
+        clearInterval(this.pingInterval);
+        if (event.code !== 1000) { // Don't reconnect if closed normally
+            setTimeout(() => connectWebSocket(deviceId), 3000);
+        }
+    };
+    
+    deviceWebSocket.onerror = (error) => {
+        console.error('WebSocket error:', error);
+    };
+}
+
+function manageDeviceWebSocket(deviceId) {
+    // Close any existing connection
+    if (deviceWebSocket) {
+        deviceWebSocket.close();
+        deviceWebSocket = null;
+    }
+    
+    if (deviceId) {
+        connectWebSocket(deviceId);
     }
 }
 
-// Add this function to handle the polling request
-function pollDeviceDetails(deviceId) {
-    const settings = getCurrentSettings();
-    
-    webix.ajax().headers({
-        "X-Current-Language": settings.language,
-        "X-Current-Label": settings.label
-    }).get(`/api/device/device=${encodeURIComponent(deviceId)}`, {
-        success: function(data, xml) {
-            const device = xml.json();
-            if (device.error) {
-                showStatus("Failed to load device: " + device.message, true);
-                return;
-            }
-            
-            updateDeviceInfo(device);
-            
-            // Update recording history if available
-            if (device.recording_history) {
-                $$("last_recording_time").setValue(
-                    device.recording_history.last_timestamp 
-                        ? formatRecordingTimestamp(device.recording_history.last_timestamp)
-                        : "No recordings yet"
-                );
-                
-                $$("last_recording_path").setValue(
-                    device.recording_history.last_filename 
-                        ? `./${device.recording_history.last_filename}`
-                        : ""
-                );
-            }
-        },
-        error: function(err) {
-            console.error("Device poll error:", err);
-        }
-    });
-}
+
 
 // Update the webix.ready function to use initLanguageFilter
 webix.ready(function() {
@@ -593,9 +611,9 @@ webix.ready(function() {
             // Load details for the selected device
             $$("device_selector").setValue(newv);
             loadDeviceDetails(newv);
-            manageDevicePolling(newv); // Start polling for this device
+            manageDeviceWebSocket(newv); // Start WebSocket for this device
         } else {
-            manageDevicePolling(null); // Stop polling
+            manageDeviceWebSocket(null); // Close WebSocket
             $$("last_recording_time").setValue("No device selected");
             $$("last_recording_path").setValue("");
         }
