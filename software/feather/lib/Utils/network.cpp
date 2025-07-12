@@ -84,7 +84,7 @@ void setupNetwork() {
 }
 
 
-bool sendToServer(const char* path, uint8_t command, uint8_t* buffer, size_t bufferSize) {
+bool sendToServer(const char* path, uint8_t* buffer, size_t bufferSize) {
   if (WiFi.status() != WL_CONNECTED) {
     println("WiFi disconnected");
     return false;
@@ -100,18 +100,8 @@ bool sendToServer(const char* path, uint8_t command, uint8_t* buffer, size_t buf
   http.begin(fullpath.c_str());
   http.addHeader("Content-Type", "application/octet-stream");
   
-  // Create a new buffer with command prefix
-  size_t totalSize = bufferSize + 1; // +1 for command byte
-  uint8_t* payload = new uint8_t[totalSize];
-  
-  // First byte is the command
-  payload[0] = command;
-  
-  // Copy the original buffer data
-  memcpy(payload + 1, buffer, bufferSize);
-  
   // Send the payload
-  int code = http.POST(payload, totalSize);
+  int code = http.POST(buffer, bufferSize);
   
   if (code > 0) {
     println("POST '%s' → %d\n", fullpath.c_str(), code);
@@ -120,14 +110,13 @@ bool sendToServer(const char* path, uint8_t command, uint8_t* buffer, size_t buf
   }
   
   // Clean up
-  delete[] payload;
   http.end();
 
   return (code > 0);
 }
 
-bool sendToServer(String path, uint8_t command, String s) {
-  return sendToServer(path.c_str(), command, (uint8_t*)s.c_str(), (size_t)s.length());
+bool sendToServer(String path, String s) {
+  return sendToServer(path.c_str(),  (uint8_t*)s.c_str(), (size_t)s.length());
 } 
 
 bool sendDevice() {
@@ -144,5 +133,11 @@ bool sendDevice() {
     " chipid:\"" + String(ESP.getEfuseMac(), HEX) + "\"";
 
   Serial.println("Sending device info: " + device); // Debug output
-  return sendToServer("/api/device-info", CMD_DEVICE_INFORMATION, device);
+  return sendToServer("/api/device-info", device);
+}
+
+bool sendAudioSnippet(int16_t audioBuffer[], size_t samples) {
+  println("Sending audio snippet %i", samples);
+  String path =  String("/api/audio/") + String(ESP.getEfuseMac(), HEX);
+  return sendToServer(path.c_str(), (uint8_t*) audioBuffer, samples*BYTES_PER_SAMPLE);
 }

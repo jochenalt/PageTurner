@@ -2,6 +2,7 @@
 #include <i2s.h>
 
 #include "soundtools.h"
+#include "constants.h"
 
 BiquadQ15 hp, lp;
 
@@ -52,4 +53,15 @@ uint32_t last_time_audio_receiver = millis();
 
 void resetAudioWatchdog() {
   last_time_audio_receiver = millis();
+}
+
+// Generate a sine wave buffer (16-bit signed PCM)
+void generateSineWave(int16_t* buffer, size_t samples, float freq /* = 440.0 */, float amplitude /* = 0.8 */) {
+  const float twoPi = 2.0 * PI;
+  const float step = twoPi * freq / SAMPLE_RATE;
+  
+  for (uint16_t i = 0; i < samples; i++) {
+    float sample = sin(step * i) * amplitude;
+    buffer[i] = static_cast<int16_t>(sample * 32767);
+  }
 }

@@ -6,7 +6,7 @@ void println(const char* format, ...);
 void print(const char* format, ...);
 
 
-#define VERSION 6
+#define VERSION 7
 const uint16_t version = VERSION;
 
 #if CONFIG_IDF_TARGET_ESP32S3
@@ -25,6 +25,8 @@ const uint16_t version = VERSION;
 #define NUMPIXELS      1     // Only one onboard NeoPixel
 
 #define LED_RECORDING_PIN BUILTIN_LED
+#define POWER_BUTTON_PIN 0
+
 
 // for the analog pins: this is the max value
 #define ANALOG_WRITE_MAX 255
@@ -43,6 +45,7 @@ const uint16_t version = VERSION;
 // audio
 #define SAMPLE_RATE 16000
 #define SAMPLES_IN_SNIPPET SAMPLE_RATE
+#define BYTES_PER_SAMPLE  2       // bytes per sample
 
 // backend url or IP address
 extern String serverUrl;

@@ -80,4 +80,4 @@ bool isAudioAvailable();
 void drainAudioData(int16_t audio_in_buffer[], size_t audioInBufferSize, size_t &added_samples);
 void filterAudio(int16_t audioBuffer[], size_t audioBufferSize);
 void resetAudioWatchdog();
-
+void generateSineWave(int16_t* buffer, size_t samples, float freq = 440.0, float amplitude = 0.8);

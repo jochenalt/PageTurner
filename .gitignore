@@ -99,3 +99,5 @@ software/PC/tt/
 tt/
 dataset/
 trainingdataset/
+webserver/__pycache__/
+new/

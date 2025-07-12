@@ -403,8 +403,7 @@ def handle_device_info():
         if len(raw_data) < 1:
             return jsonify({'error': 'No data received'}), 400
             
-        command = raw_data[0]
-        message = raw_data[1:].decode('utf-8', errors='replace').strip()
+        message = raw_data[0:].decode('utf-8', errors='replace').strip()
         
         # Temporary dict for this update
         device_data = {}
@@ -457,7 +456,6 @@ def handle_device_info():
         
         # Log the update
         print(f"\n=== Device Update [{chip_id}] ===")
-        print(f"Command: {command}")
         for key, value in device_data.items():
             print(f"{key}: {value}")
         print(f"Total devices registered: {len(device_registry)}")
