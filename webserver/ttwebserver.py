@@ -241,6 +241,24 @@ def handle_device_ws(ws):
 def serve_js(filename):
     return send_from_directory(os.path.join(app.static_folder, 'js'), filename)
 
+@app.route('/recording/<path:filename>')
+def serve_recording(filename):
+    try:
+        # Security check to prevent directory traversal
+        if '..' in filename:
+            raise ValueError("Invalid path")
+            
+        file_path = os.path.join(RECORDING_DIR, filename)
+        
+        # Check if file exists and is a WAV file
+        if not os.path.exists(file_path) or not filename.lower().endswith('.wav'):
+            return "File not found", 404
+            
+        return send_file(file_path)
+        
+    except Exception as e:
+        return str(e), 500
+        
 @app.route('/')
 def index():
     # Verify dataset directory exists before rendering
@@ -329,7 +347,7 @@ def dataset_overview():
 def audio_files():
     try:
         language = request.args.get('language', 'Deutsch')
-        label = request.args.get('label', 'All Labels')
+        label = request.args.get('label', 'All labels')
         
         # Get all valid labels for the current language
         commands = COMMAND_LABELS.get(language, COMMAND_LABELS['Deutsch'])
@@ -337,7 +355,7 @@ def audio_files():
         all_labels = commands + labels
         
         files = []
-        if label == 'All Labels':
+        if label == 'All labels':
             # Get files from all folders in FOLDER_MAPPING that match the current language
             valid_folders = []
             for display_name, folder_name in zip(FOLDER_MAPPING['name'], FOLDER_MAPPING['label']):
@@ -630,7 +648,7 @@ def receive_audio(device_id):
         # Check if we have device session with label
         device_session = session_manager.get_or_create_session(device_id)
 
-        if device_session.get('label') and device_session['label'] != 'All Labels':
+        if device_session.get('label') and device_session['label'] != 'All labels':
             print(f"sessioN!")
 
             # Map UI label to folder name using FOLDER_MAPPING

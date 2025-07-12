@@ -119,7 +119,6 @@ function updatePlayButton(rowId, isPlaying) {
 }
 
 
-// Play audio file
 function playAudio(url, rowId) {
     if (!audioContext) {
         try {
@@ -138,9 +137,29 @@ function playAudio(url, rowId) {
     showStatus(`Loading: ${filename}`);
 
     const audioUrl = `${url}?t=${Date.now()}`;
-    const playerElement = document.querySelector(`.audio-player[data-id="${rowId}"]`);
-    const slider = playerElement.querySelector('.progress-slider');
-    const timeDisplay = playerElement.querySelector('.time-display');
+    
+    // Create temporary player element if this is an automatic playback
+    let playerElement, slider, timeDisplay;
+    if (rowId) {
+        const tempPlayer = document.createElement('div');
+        tempPlayer.className = 'audio-player';
+        tempPlayer.setAttribute('data-id', rowId);
+        tempPlayer.innerHTML = `
+            <input type="range" class="progress-slider" min="0" max="100" value="0" style="width: 120px; margin: 0 5px;">
+            <span class="time-display" style="width: 50px; display: inline-block; text-align: center;">
+                0:00 / 0:00
+            </span>
+        `;
+        document.body.appendChild(tempPlayer);
+        playerElement = tempPlayer;
+        slider = tempPlayer.querySelector('.progress-slider');
+        timeDisplay = tempPlayer.querySelector('.time-display');
+    } else {
+        playerElement = document.querySelector(`.audio-player[data-id="${rowId}"]`);
+        slider = playerElement.querySelector('.progress-slider');
+        timeDisplay = playerElement.querySelector('.time-display');
+    }
+
     let animationFrameId;
     let startTime;
     let duration;
@@ -158,25 +177,23 @@ function playAudio(url, rowId) {
             currentAudioSource.connect(audioContext.destination);
             
             duration = audioBuffer.duration;
-            slider.max = duration;
-            timeDisplay.textContent = `0:00 / ${formatTime(duration)}`;
+            if (slider) slider.max = duration;
+            if (timeDisplay) timeDisplay.textContent = `0:00 / ${formatTime(duration)}`;
             
             startTime = audioContext.currentTime;
             currentAudioSource.start(0);
             isPlaying = true;
             currentRowId = rowId;
-            updatePlayButton(rowId, true);
             showStatus(`Playing: ${filename}`);
             
-            // Animation loop to update slider
             function updateProgress() {
                 if (!isPlaying) return;
                 
                 const elapsed = audioContext.currentTime - startTime;
                 const progress = Math.min(elapsed, duration);
                 
-                slider.value = progress;
-                timeDisplay.textContent = `${formatTime(progress)} / ${formatTime(duration)}`;
+                if (slider) slider.value = progress;
+                if (timeDisplay) timeDisplay.textContent = `${formatTime(progress)} / ${formatTime(duration)}`;
                 
                 if (progress < duration) {
                     animationFrameId = requestAnimationFrame(updateProgress);
@@ -187,17 +204,23 @@ function playAudio(url, rowId) {
             
             currentAudioSource.onended = () => {
                 cancelAnimationFrame(animationFrameId);
-                slider.value = duration;
-                timeDisplay.textContent = `${formatTime(duration)} / ${formatTime(duration)}`;
+                if (slider) slider.value = duration;
+                if (timeDisplay) timeDisplay.textContent = `${formatTime(duration)} / ${formatTime(duration)}`;
                 isPlaying = false;
                 currentRowId = null;
-                updatePlayButton(rowId, false);
+                // Remove temporary player element if this was an automatic playback
+                if (rowId && playerElement) {
+                    playerElement.remove();
+                }
             };
         })
         .catch(error => {
             showStatus(`Playback failed: ${error.message}`, true);
             console.error('Audio error:', error);
-            updatePlayButton(rowId, false);
+            // Remove temporary player element if there was an error
+            if (rowId && playerElement) {
+                playerElement.remove();
+            }
         });
 }
 
@@ -514,7 +537,6 @@ function updateRecordingHistory(deviceId) {
 // Add at the top of backend.js
 let deviceWebSocket = null;
 
-
 function connectWebSocket(deviceId) {
     const wsProtocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
     const wsUrl = wsProtocol + window.location.host + '/api/ws/device-updates';
@@ -558,6 +580,15 @@ function connectWebSocket(deviceId) {
                             ? `./${data.data.recording_history.last_filename}`
                             : ""
                     );
+
+                    // Add automatic playback when new recording arrives
+                    const alwaysPlay = $$("recording_form").getChildViews()[0].getValue();
+                    if (alwaysPlay && data.data.recording_history.last_filename) {
+                        const audioUrl = `/dataset/${data.data.recording_history.last_filename}`;
+                        // Create a temporary ID for playback
+                        const tempId = webix.uid();
+                        playAudio(audioUrl, tempId);
+                    }
                 }
             }
         } catch (e) {
