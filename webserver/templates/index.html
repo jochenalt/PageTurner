@@ -204,6 +204,19 @@ webix.ready(
                                                 value: "Delete last audio snippet",
                                                 type: "form",
                                             },
+                                            { height: 8 },
+                                            {
+                                                view: "text",
+                                                label: "Last Recording",
+                                                readonly: true,
+                                                id: "last_recording_time"
+                                            },
+                                            {
+                                                view: "text",
+                                                label: "File Path",
+                                                readonly: true,
+                                                id: "last_recording_path"
+                                            }
 
                                         ]
                                     }
@@ -283,5 +296,6 @@ webix.ready(
 });
 </script>
 <script src="/js/backend.js"></script>    
+
 </body>
 </html>
