@@ -7,7 +7,7 @@ from datetime import datetime
 from DeviceSessionManager import DeviceSessionManager
 from flask_sock import Sock
 
-
+# Flask server and the websocket connection
 app = Flask(__name__, static_folder='static')
 sock = Sock(app)  # Add this line right after app initialization
 
@@ -29,8 +29,12 @@ if not os.path.exists(RECORDING_DIR):
     os.makedirs(RECORDING_DIR, exist_ok=True)
     
 
-# Initialize the session manager
-session_manager = DeviceSessionManager()
+# Global dictionary to store all devices by chip_id
+device_registry = {}  
+# all web socket connections
+client_connections = set()  # Track all connected clients
+session_manager = DeviceSessionManager(device_registry, client_connections)
+
 
 # Language mappings
 LANGUAGE_LABELS = {
@@ -54,8 +58,7 @@ FOLDER_MAPPING = {
 
 folder_mapping_updated = False
 
-# Add this near the top with other global variables
-device_registry = {}  # Global dictionary to store all devices by chip_id
+
 
 
 def populate_folder_mapping_stats():
@@ -208,24 +211,30 @@ def optimise_dataset():
     return True
 
 
-# WebSocket connection handler
+# WebSocket connection handler for device updates
 @sock.route('/api/ws/device-updates')
 def handle_device_ws(ws):
     device_id = ws.receive()  # First message should be the device ID
     if not device_id:
         return
     
-    # Register this connection for the device
-    session_manager.register_ws_connection(device_id, ws)
+    # Register this connection
+    if device_id == "client":  # Special ID for frontend clients
+        client_connections.add(ws)
+    else:  # Regular device connection
+        session_manager.register_ws_connection(device_id, ws)
     
     try:
         while True:
-            # Keep connection alive (client can send pings if needed)
-            ws.receive()  # This will block until client disconnects
+            # Keep connection alive
+            ws.receive()
     except:
         pass
     finally:
-        session_manager.unregister_ws_connection(device_id, ws)
+        if device_id == "client":
+            client_connections.discard(ws)
+        else:
+            session_manager.unregister_ws_connection(device_id, ws)
 
 # Add these routes to serve JS files
 @app.route('/js/<path:filename>')
@@ -420,6 +429,29 @@ def status():
         'is_error': is_error
     })
 
+# Add this function to broadcast device list updates
+def broadcast_device_list():
+    devices = []
+    for chip_id, data in device_registry.items():
+        devices.append({
+            'id': chip_id,
+            'owner': data.get('owner', 'Unknown')
+        })
+    
+    # Sort by owner name
+    devices.sort(key=lambda x: x['owner'].lower())
+    
+    update = {
+        'type': 'device_list',
+        'devices': devices
+    }
+    
+    for ws in list(client_connections):
+        try:
+            ws.send(json.dumps(update))
+        except:
+            client_connections.discard(ws)
+
 # service to add device information
 @app.route('/api/device-info', methods=['POST'])
 def handle_device_info():
@@ -429,7 +461,6 @@ def handle_device_info():
         # Get raw binary data
         raw_data = request.data
 
-        
         # First byte is command, rest is the message
         if len(raw_data) < 1:
             return jsonify({'error': 'No data received'}), 400
@@ -500,7 +531,9 @@ def handle_device_info():
             'type': 'device_update',
             'data': device_data
         })
-    
+
+        # After updating device_registry
+        broadcast_device_list()
 
         return jsonify({
             'success': True,

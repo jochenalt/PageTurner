@@ -3,9 +3,11 @@ from datetime import timedelta
 import json
 
 class DeviceSessionManager:
-    def __init__(self):
-        self.sessions = {}  # chip_id -> session data
-        self.ws_connections = {}  # device_id: set of WebSocket connections
+    def __init__(self, device_registry, client_connections):
+        self.sessions = {}
+        self.ws_connections = {}
+        self.device_registry = device_registry
+        self.client_connections = client_connections
     
     def update_recording_history(self, chip_id, filename):
         """Update the last recording info for a device"""
@@ -73,3 +75,25 @@ class DeviceSessionManager:
                 except Exception as e:
                     print(f"Error sending WebSocket message: {str(e)}")
                     self.ws_connections[device_id].discard(ws)
+
+
+    def broadcast_device_list(self):
+        devices = []
+        for chip_id, data in self.device_registry.items():
+            devices.append({
+                'id': chip_id,
+                'owner': data.get('owner', 'Unknown')
+            })
+        
+        devices.sort(key=lambda x: x['owner'].lower())
+        
+        update = {
+            'type': 'device_list',
+            'devices': devices
+        }
+        
+        for ws in list(self.client_connections):
+            try:
+                ws.send(json.dumps(update))
+            except:
+                self.client_connections.discard(ws)

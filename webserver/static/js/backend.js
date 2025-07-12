@@ -338,41 +338,65 @@ function formatBytes(bytes) {
     return `${(bytes / Math.pow(k, i)).toFixed(2)} ${sizes[i]}`;
 }
 
-function loadDevices() {
-    // Check if the device_selector exists
+let globalWebSocket = null;  // For device list updates
+
+
+function updateDeviceList(devices) {
     if (!$$("device_selector")) {
         console.error("device_selector not found");
         return;
     }
 
-    webix.ajax().get("/api/devices", {
-        success: function(data, xml) {
-            const response = xml.json();
-            if (response.error) {
-                showStatus("Failed to load devices: " + response.message, true);
-                return;
-            }
-
-            // Create device options (unique devices with ID and owner)
-            const deviceOptions = response.devices.map(device => {
-                return {
-                    id: device.id,
-                    value: device.id
-                };
-            });
-
-            // Update device selector
-            if ($$("device_selector")) {
-                $$("device_selector").define("options", deviceOptions);
-                $$("device_selector").refresh();
-            }
-
-        },
-        error: function(err) {
-            showStatus("Device list loading failed: " + err.status, true);
-        }
+    // Create device options
+    const deviceOptions = devices.map(device => {
+        return {
+            id: device.id,
+            value: device.id
+        };
     });
+
+    // Update device selector
+    $$("device_selector").define("options", deviceOptions);
+    $$("device_selector").refresh();
+    
+    showStatus(`Device list updated (${devices.length} devices)`);
 }
+
+function connectGlobalWebSocket() {
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
+    const wsUrl = wsProtocol + window.location.host + '/api/ws/device-updates';
+    
+    globalWebSocket = new WebSocket(wsUrl);
+    console.log('Connecting to global WebSocket:', wsUrl);
+    
+    globalWebSocket.onopen = () => {
+        console.log('Global WebSocket connected');
+        // Identify as a client (not a device)
+        globalWebSocket.send("client");
+    };
+    
+    globalWebSocket.onmessage = (event) => {
+        console.log('Global WebSocket message:', event.data);
+        try {
+            const data = JSON.parse(event.data);
+            if (data.type === 'device_list') {
+                updateDeviceList(data.devices);
+            }
+        } catch (e) {
+            console.error('Error processing global WebSocket message:', e);
+        }
+    };
+    
+    globalWebSocket.onclose = (event) => {
+        console.log('Global WebSocket closed, reconnecting...', event.code, event.reason);
+        setTimeout(connectGlobalWebSocket, 3000);
+    };
+    
+    globalWebSocket.onerror = (error) => {
+        console.error('Global WebSocket error:', error);
+    };
+}
+
 
 function updateDeviceInfo(device) {
     $$("device_owner").setValue(device.owner);
@@ -592,6 +616,9 @@ webix.ready(function() {
         return;
     }
     
+    // Initialize WebSocket connections
+    connectGlobalWebSocket();
+
     // Add button event handler
     $$("create_training_btn").attachEvent("onItemClick", function() {
         webix.confirm({
@@ -619,8 +646,6 @@ webix.ready(function() {
         }
     });
 
-    loadDevices();
-    setInterval(loadDevices, 10000);
 
     // Initialize language filter and all comboboxes
     initLanguageFilter();
